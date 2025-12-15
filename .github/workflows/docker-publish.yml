@@ -30,6 +30,10 @@ jobs:
         shell: bash
         run: echo "BUILD_VERSION=${GITHUB_REF_NAME}-${GITHUB_SHA::7}" >> $GITHUB_ENV
 
+      - name: Set image name
+        shell: bash
+        run: echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
       - name: Login to GitHub Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
@@ -43,7 +47,7 @@ jobs:
         uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 # v5.9.0
         with:
           images: |
-            ghcr.io/${{ github.repository }}
+            ${{ env.IMAGE_NAME }}
           flavor: |
             latest=auto
             prefix=
