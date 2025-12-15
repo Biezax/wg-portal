@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"time"
 
 	"gorm.io/gorm"
@@ -171,6 +172,18 @@ func migrateV1Users(oldDb, newDb *gorm.DB) error {
 }
 
 func migrateV1Interfaces(oldDb, newDb *gorm.DB) error {
+	type AdvancedSecurity struct {
+		JunkPacketCount            uint16
+		JunkPacketMinSize          uint16
+		JunkPacketMaxSize          uint16
+		InitPacketJunkSize         uint16
+		ResponsePacketJunkSize     uint16
+		InitPacketMagicHeader      uint32
+		ResponsePacketMagicHeader  uint32
+		UnderloadPacketMagicHeader uint32
+		TransportPacketMagicHeader uint32
+	}
+
 	type Device struct {
 		Type                       string
 		DeviceName                 string `gorm:"primaryKey"`
@@ -193,6 +206,7 @@ func migrateV1Interfaces(oldDb, newDb *gorm.DB) error {
 		DefaultPersistentKeepalive int
 		CreatedAt                  time.Time
 		UpdatedAt                  time.Time
+		AdvancedSecurity           *AdvancedSecurity `gorm:"serializer:json"`
 	}
 
 	var oldDevices []Device
@@ -252,6 +266,30 @@ func migrateV1Interfaces(oldDb, newDb *gorm.DB) error {
 			PeerDefPostUp:              "",
 			PeerDefPreDown:             "",
 			PeerDefPostDown:            "",
+		}
+
+		if oldDevice.AdvancedSecurity != nil {
+			newInterface.AdvancedSecurity = &domain.AdvancedSecurity{
+				JunkPacketCount:   oldDevice.AdvancedSecurity.JunkPacketCount,
+				JunkPacketMinSize: oldDevice.AdvancedSecurity.JunkPacketMinSize,
+				JunkPacketMaxSize: oldDevice.AdvancedSecurity.JunkPacketMaxSize,
+
+				InitPacketJunkSize:        oldDevice.AdvancedSecurity.InitPacketJunkSize,
+				ResponsePacketJunkSize:    oldDevice.AdvancedSecurity.ResponsePacketJunkSize,
+				CookieReplyPacketJunkSize: 0,
+				TransportPacketJunkSize:   0,
+
+				InitPacketMagicHeader:      strconv.Itoa(int(oldDevice.AdvancedSecurity.InitPacketMagicHeader)),
+				ResponsePacketMagicHeader:  strconv.Itoa(int(oldDevice.AdvancedSecurity.ResponsePacketMagicHeader)),
+				UnderloadPacketMagicHeader: strconv.Itoa(int(oldDevice.AdvancedSecurity.UnderloadPacketMagicHeader)),
+				TransportPacketMagicHeader: strconv.Itoa(int(oldDevice.AdvancedSecurity.TransportPacketMagicHeader)),
+
+				FirstSpecialJunkPacket:  nil,
+				SecondSpecialJunkPacket: nil,
+				ThirdSpecialJunkPacket:  nil,
+				FourthSpecialJunkPacket: nil,
+				FifthSpecialJunkPacket:  nil,
+			}
 		}
 
 		// Create new interface with associations
@@ -386,17 +424,18 @@ func migrateV1Peers(oldDb, newDb *gorm.DB) error {
 					PrivateKey: oldPeer.PrivateKey,
 					PublicKey:  oldPeer.PublicKey,
 				},
-				Type:         ifaceType,
-				Addresses:    ips,
-				DnsStr:       domain.NewConfigOption(oldPeer.DNSStr, !oldPeer.IgnoreGlobalSettings),
-				DnsSearchStr: domain.NewConfigOption(iface.PeerDefDnsSearchStr, !oldPeer.IgnoreGlobalSettings),
-				Mtu:          domain.NewConfigOption(oldPeer.Mtu, !oldPeer.IgnoreGlobalSettings),
-				FirewallMark: domain.NewConfigOption(iface.PeerDefFirewallMark, !oldPeer.IgnoreGlobalSettings),
-				RoutingTable: domain.NewConfigOption(iface.PeerDefRoutingTable, !oldPeer.IgnoreGlobalSettings),
-				PreUp:        domain.NewConfigOption(iface.PeerDefPreUp, !oldPeer.IgnoreGlobalSettings),
-				PostUp:       domain.NewConfigOption(iface.PeerDefPostUp, !oldPeer.IgnoreGlobalSettings),
-				PreDown:      domain.NewConfigOption(iface.PeerDefPreDown, !oldPeer.IgnoreGlobalSettings),
-				PostDown:     domain.NewConfigOption(iface.PeerDefPostDown, !oldPeer.IgnoreGlobalSettings),
+				Type:             ifaceType,
+				Addresses:        ips,
+				DnsStr:           domain.NewConfigOption(oldPeer.DNSStr, !oldPeer.IgnoreGlobalSettings),
+				DnsSearchStr:     domain.NewConfigOption(iface.PeerDefDnsSearchStr, !oldPeer.IgnoreGlobalSettings),
+				Mtu:              domain.NewConfigOption(oldPeer.Mtu, !oldPeer.IgnoreGlobalSettings),
+				FirewallMark:     domain.NewConfigOption(iface.PeerDefFirewallMark, !oldPeer.IgnoreGlobalSettings),
+				RoutingTable:     domain.NewConfigOption(iface.PeerDefRoutingTable, !oldPeer.IgnoreGlobalSettings),
+				PreUp:            domain.NewConfigOption(iface.PeerDefPreUp, !oldPeer.IgnoreGlobalSettings),
+				PostUp:           domain.NewConfigOption(iface.PeerDefPostUp, !oldPeer.IgnoreGlobalSettings),
+				PreDown:          domain.NewConfigOption(iface.PeerDefPreDown, !oldPeer.IgnoreGlobalSettings),
+				PostDown:         domain.NewConfigOption(iface.PeerDefPostDown, !oldPeer.IgnoreGlobalSettings),
+				AdvancedSecurity: iface.AdvancedSecurity,
 			},
 		}
 

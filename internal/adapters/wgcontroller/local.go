@@ -13,13 +13,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Biezax/wgctrl/wgtypes"
 	probing "github.com/prometheus-community/pro-bing"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
-	"golang.zx2c4.com/wireguard/wgctrl"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/h44z/wg-portal/internal"
+	"github.com/h44z/wg-portal/internal/adapters"
 	"github.com/h44z/wg-portal/internal/config"
 	"github.com/h44z/wg-portal/internal/domain"
 	"github.com/h44z/wg-portal/internal/lowlevel"
@@ -62,8 +62,8 @@ type NetlinkClient interface {
 type LocalController struct {
 	cfg *config.Config
 
-	wg WgCtrlRepo
-	nl NetlinkClient
+	Clients []lowlevel.WireGuardClient
+	nl      NetlinkClient
 
 	shellCmd              string
 	resolvConfIfacePrefix string
@@ -72,7 +72,7 @@ type LocalController struct {
 // NewLocalController creates a new local controller instance.
 // This repository is used to interact with the WireGuard kernel or userspace module.
 func NewLocalController(cfg *config.Config) (*LocalController, error) {
-	wg, err := wgctrl.New()
+	repoAdapter, err := adapters.NewWireGuardRepository()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create wgctrl client: %w", err)
 	}
@@ -82,8 +82,8 @@ func NewLocalController(cfg *config.Config) (*LocalController, error) {
 	repo := &LocalController{
 		cfg: cfg,
 
-		wg: wg,
-		nl: nl,
+		Clients: repoAdapter.Clients,
+		nl:      nl,
 
 		shellCmd:              "bash",                            // we only support bash at the moment
 		resolvConfIfacePrefix: cfg.Backend.LocalResolvconfPrefix, // WireGuard interfaces have a tun. prefix in resolvconf
@@ -99,14 +99,44 @@ func (c LocalController) GetId() domain.InterfaceBackend {
 // region wireguard-related
 
 func (c LocalController) GetInterfaces(_ context.Context) ([]domain.PhysicalInterface, error) {
-	devices, err := c.wg.Devices()
-	if err != nil {
-		return nil, fmt.Errorf("device list error: %w", err)
+	type DeviceClient struct {
+		Device     *wgtypes.Device
+		ClientType wgtypes.ClientType
+	}
+
+	var devicesErrors []error
+	var devices []DeviceClient
+	seen := make(map[string]struct{})
+	for _, client := range c.Clients {
+		clientDevices, err := client.Devices()
+		if err != nil {
+			devicesErrors = append(devicesErrors, err)
+			continue
+		}
+		for _, device := range clientDevices {
+			if _, ok := seen[device.Name]; ok {
+				continue
+			}
+			seen[device.Name] = struct{}{}
+			devices = append(devices, DeviceClient{
+				Device:     device,
+				ClientType: client.Type(),
+			})
+		}
+	}
+
+	if len(devicesErrors) > 0 {
+		formatted := "device list error:\n"
+		for _, err := range devicesErrors {
+			formatted += fmt.Sprintf("- %s\n", err.Error())
+		}
+		return nil, fmt.Errorf(formatted)
 	}
 
 	interfaces := make([]domain.PhysicalInterface, 0, len(devices))
-	for _, device := range devices {
-		interfaceModel, err := c.convertWireGuardInterface(device)
+	for _, deviceClient := range devices {
+		device := deviceClient.Device
+		interfaceModel, err := c.convertWireGuardInterface(deviceClient.ClientType, device)
 		if err != nil {
 			return nil, fmt.Errorf("interface convert failed for %s: %w", device.Name, err)
 		}
@@ -123,7 +153,7 @@ func (c LocalController) GetInterface(_ context.Context, id domain.InterfaceIden
 	return c.getInterface(id)
 }
 
-func (c LocalController) convertWireGuardInterface(device *wgtypes.Device) (domain.PhysicalInterface, error) {
+func (c LocalController) convertWireGuardInterface(clientType wgtypes.ClientType, device *wgtypes.Device) (domain.PhysicalInterface, error) {
 	// read data from wgctrl interface
 
 	iface := domain.PhysicalInterface{
@@ -141,6 +171,31 @@ func (c LocalController) convertWireGuardInterface(device *wgtypes.Device) (doma
 		DeviceType:    device.Type.String(),
 		BytesUpload:   0,
 		BytesDownload: 0,
+		ClientType:    clientType,
+	}
+
+	if device.HasAdvancedSecurity() {
+		iface.AdvancedSecurity = &domain.AdvancedSecurity{
+			JunkPacketCount:   device.AdvancedSecurity.JunkPacketCount,
+			JunkPacketMinSize: device.AdvancedSecurity.JunkPacketMinSize,
+			JunkPacketMaxSize: device.AdvancedSecurity.JunkPacketMaxSize,
+
+			InitPacketJunkSize:        device.AdvancedSecurity.InitPacketJunkSize,
+			ResponsePacketJunkSize:    device.AdvancedSecurity.ResponsePacketJunkSize,
+			CookieReplyPacketJunkSize: device.AdvancedSecurity.CookieReplyPacketJunkSize,
+			TransportPacketJunkSize:   device.AdvancedSecurity.TransportPacketJunkSize,
+
+			InitPacketMagicHeader:      device.AdvancedSecurity.InitPacketMagicHeader,
+			ResponsePacketMagicHeader:  device.AdvancedSecurity.ResponsePacketMagicHeader,
+			UnderloadPacketMagicHeader: device.AdvancedSecurity.UnderloadPacketMagicHeader,
+			TransportPacketMagicHeader: device.AdvancedSecurity.TransportPacketMagicHeader,
+
+			FirstSpecialJunkPacket:  device.AdvancedSecurity.FirstSpecialJunkPacket,
+			SecondSpecialJunkPacket: device.AdvancedSecurity.SecondSpecialJunkPacket,
+			ThirdSpecialJunkPacket:  device.AdvancedSecurity.ThirdSpecialJunkPacket,
+			FourthSpecialJunkPacket: device.AdvancedSecurity.FourthSpecialJunkPacket,
+			FifthSpecialJunkPacket:  device.AdvancedSecurity.FifthSpecialJunkPacket,
+		}
 	}
 
 	// read data from netlink interface
@@ -171,7 +226,7 @@ func (c LocalController) GetPeers(_ context.Context, deviceId domain.InterfaceId
 	[]domain.PhysicalPeer,
 	error,
 ) {
-	device, err := c.wg.Device(string(deviceId))
+	_, device, err := c.clientForDevice(string(deviceId))
 	if err != nil {
 		return nil, fmt.Errorf("device error: %w", err)
 	}
@@ -223,14 +278,58 @@ func (c LocalController) convertWireGuardPeer(peer *wgtypes.Peer) (domain.Physic
 	return peerModel, nil
 }
 
+func (c LocalController) pickClientByType(clientType wgtypes.ClientType) lowlevel.WireGuardClient {
+	for _, client := range c.Clients {
+		if client.Type() == clientType {
+			return client
+		}
+	}
+	return nil
+}
+
+func (c LocalController) clientForDevice(deviceName string) (lowlevel.WireGuardClient, *wgtypes.Device, error) {
+	var collectedErr error
+	for _, client := range c.Clients {
+		device, err := client.Device(deviceName)
+		if err == nil {
+			return client, device, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			collectedErr = err
+		}
+	}
+
+	if collectedErr != nil {
+		return nil, nil, collectedErr
+	}
+
+	return nil, nil, os.ErrNotExist
+}
+
 func (c LocalController) SaveInterface(
 	_ context.Context,
 	id domain.InterfaceIdentifier,
 	updateFunc func(pi *domain.PhysicalInterface) (*domain.PhysicalInterface, error),
 ) error {
-	physicalInterface, err := c.getOrCreateInterface(id)
-	if err != nil {
-		return err
+	var (
+		physicalInterface *domain.PhysicalInterface
+		err               error
+	)
+
+	client, device, devErr := c.clientForDevice(string(id))
+	if devErr == nil {
+		iface, convErr := c.convertWireGuardInterface(client.Type(), device)
+		if convErr != nil {
+			return convErr
+		}
+		physicalInterface = &iface
+	} else if errors.Is(devErr, os.ErrNotExist) {
+		physicalInterface = &domain.PhysicalInterface{
+			Identifier: id,
+			ClientType: wgtypes.NativeClient,
+		}
+	} else {
+		return devErr
 	}
 
 	if updateFunc != nil {
@@ -240,50 +339,69 @@ func (c LocalController) SaveInterface(
 		}
 	}
 
+	if physicalInterface.ClientType == 0 {
+		physicalInterface.ClientType = wgtypes.NativeClient
+	}
+
+	if err := c.ensureInterfaceExists(physicalInterface.ClientType, physicalInterface.Identifier); err != nil {
+		return err
+	}
+
+	client = c.pickClientByType(physicalInterface.ClientType)
+	if client == nil {
+		return fmt.Errorf("no client for %s", physicalInterface.ClientType)
+	}
+
 	if err := c.updateLowLevelInterface(physicalInterface); err != nil {
 		return err
 	}
-	if err := c.updateWireGuardInterface(physicalInterface); err != nil {
+	if err := c.updateWireGuardInterface(client, physicalInterface); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (c LocalController) getOrCreateInterface(id domain.InterfaceIdentifier) (*domain.PhysicalInterface, error) {
-	device, err := c.getInterface(id)
+func (c LocalController) ensureInterfaceExists(clientType wgtypes.ClientType, id domain.InterfaceIdentifier) error {
+	_, _, err := c.clientForDevice(string(id))
 	if err == nil {
-		return device, nil // interface exists
+		return nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("device error: %w", err) // unknown error
+		return err
 	}
 
-	// create new device
-	if err := c.createLowLevelInterface(id); err != nil {
-		return nil, err
+	if clientType == 0 {
+		clientType = wgtypes.NativeClient
+	}
+	if c.pickClientByType(clientType) == nil {
+		return fmt.Errorf("no client for %s", clientType)
 	}
 
-	device, err = c.getInterface(id)
-	return device, err
+	return c.createLowLevelInterface(clientType, id)
 }
 
 func (c LocalController) getInterface(id domain.InterfaceIdentifier) (*domain.PhysicalInterface, error) {
-	device, err := c.wg.Device(string(id))
+	client, device, err := c.clientForDevice(string(id))
 	if err != nil {
 		return nil, err
 	}
 
-	pi, err := c.convertWireGuardInterface(device)
+	pi, err := c.convertWireGuardInterface(client.Type(), device)
 	return &pi, err
 }
 
-func (c LocalController) createLowLevelInterface(id domain.InterfaceIdentifier) error {
+func (c LocalController) createLowLevelInterface(clientType wgtypes.ClientType, id domain.InterfaceIdentifier) error {
+	linkType := "wireguard"
+	if clientType == wgtypes.AmneziaClient {
+		linkType = "amneziawg"
+	}
+
 	link := &netlink.GenericLink{
 		LinkAttrs: netlink.LinkAttrs{
 			Name: string(id),
 		},
-		LinkType: "wireguard",
+		LinkType: linkType,
 	}
 	err := c.nl.LinkAdd(link)
 	if err != nil {
@@ -350,7 +468,7 @@ func (c LocalController) updateLowLevelInterface(pi *domain.PhysicalInterface) e
 	return nil
 }
 
-func (c LocalController) updateWireGuardInterface(pi *domain.PhysicalInterface) error {
+func (c LocalController) updateWireGuardInterface(client lowlevel.WireGuardClient, pi *domain.PhysicalInterface) error {
 	pKey, err := wgtypes.NewKey(pi.KeyPair.GetPrivateKeyBytes())
 	if err != nil {
 		return err
@@ -361,12 +479,38 @@ func (c LocalController) updateWireGuardInterface(pi *domain.PhysicalInterface) 
 		intFwMark := int(pi.FirewallMark)
 		fwMark = &intFwMark
 	}
-	err = c.wg.ConfigureDevice(string(pi.Identifier), wgtypes.Config{
+
+	ifaceConfig := wgtypes.Config{
 		PrivateKey:   &pKey,
 		ListenPort:   &pi.ListenPort,
 		FirewallMark: fwMark,
 		ReplacePeers: false,
-	})
+	}
+
+	if pi.HasAdvancedSecurity() {
+		advSec := pi.AdvancedSecurity
+		ifaceConfig.AdvancedSecurityConfig.JunkPacketCount = &advSec.JunkPacketCount
+		ifaceConfig.AdvancedSecurityConfig.JunkPacketMinSize = &advSec.JunkPacketMinSize
+		ifaceConfig.AdvancedSecurityConfig.JunkPacketMaxSize = &advSec.JunkPacketMaxSize
+
+		ifaceConfig.AdvancedSecurityConfig.InitPacketJunkSize = &advSec.InitPacketJunkSize
+		ifaceConfig.AdvancedSecurityConfig.ResponsePacketJunkSize = &advSec.ResponsePacketJunkSize
+		ifaceConfig.AdvancedSecurityConfig.CookieReplyPacketJunkSize = &advSec.CookieReplyPacketJunkSize
+		ifaceConfig.AdvancedSecurityConfig.TransportPacketJunkSize = &advSec.TransportPacketJunkSize
+
+		ifaceConfig.AdvancedSecurityConfig.InitPacketMagicHeader = &advSec.InitPacketMagicHeader
+		ifaceConfig.AdvancedSecurityConfig.ResponsePacketMagicHeader = &advSec.ResponsePacketMagicHeader
+		ifaceConfig.AdvancedSecurityConfig.UnderloadPacketMagicHeader = &advSec.UnderloadPacketMagicHeader
+		ifaceConfig.AdvancedSecurityConfig.TransportPacketMagicHeader = &advSec.TransportPacketMagicHeader
+
+		ifaceConfig.AdvancedSecurityConfig.FirstSpecialJunkPacket = advSec.FirstSpecialJunkPacket
+		ifaceConfig.AdvancedSecurityConfig.SecondSpecialJunkPacket = advSec.SecondSpecialJunkPacket
+		ifaceConfig.AdvancedSecurityConfig.ThirdSpecialJunkPacket = advSec.ThirdSpecialJunkPacket
+		ifaceConfig.AdvancedSecurityConfig.FourthSpecialJunkPacket = advSec.FourthSpecialJunkPacket
+		ifaceConfig.AdvancedSecurityConfig.FifthSpecialJunkPacket = advSec.FifthSpecialJunkPacket
+	}
+
+	err = client.ConfigureDevice(string(pi.Identifier), ifaceConfig)
 	if err != nil {
 		return err
 	}
@@ -448,7 +592,12 @@ func (c LocalController) getOrCreatePeer(deviceId domain.InterfaceIdentifier, id
 	}
 
 	// create new peer
-	err = c.wg.ConfigureDevice(string(deviceId), wgtypes.Config{
+	client, _, err := c.clientForDevice(string(deviceId))
+	if err != nil {
+		return nil, fmt.Errorf("device %s unavailable: %w", deviceId, err)
+	}
+
+	err = client.ConfigureDevice(string(deviceId), wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{
 			{
 				PublicKey: id.ToPublicKey(),
@@ -474,7 +623,7 @@ func (c LocalController) getPeer(deviceId domain.InterfaceIdentifier, id domain.
 		return nil, errors.New("invalid public key")
 	}
 
-	device, err := c.wg.Device(string(deviceId))
+	_, device, err := c.clientForDevice(string(deviceId))
 	if err != nil {
 		return nil, err
 	}
@@ -504,7 +653,12 @@ func (c LocalController) updatePeer(deviceId domain.InterfaceIdentifier, pp *dom
 		AllowedIPs:                  pp.GetAllowedIPs(),
 	}
 
-	err := c.wg.ConfigureDevice(string(deviceId), wgtypes.Config{ReplacePeers: false, Peers: []wgtypes.PeerConfig{cfg}})
+	client, _, err := c.clientForDevice(string(deviceId))
+	if err != nil {
+		return fmt.Errorf("device %s unavailable: %w", deviceId, err)
+	}
+
+	err = client.ConfigureDevice(string(deviceId), wgtypes.Config{ReplacePeers: false, Peers: []wgtypes.PeerConfig{cfg}})
 	if err != nil {
 		return err
 	}
@@ -535,7 +689,12 @@ func (c LocalController) deletePeer(deviceId domain.InterfaceIdentifier, id doma
 		Remove:    true,
 	}
 
-	err := c.wg.ConfigureDevice(string(deviceId), wgtypes.Config{ReplacePeers: false, Peers: []wgtypes.PeerConfig{cfg}})
+	client, _, err := c.clientForDevice(string(deviceId))
+	if err != nil {
+		return fmt.Errorf("device %s unavailable: %w", deviceId, err)
+	}
+
+	err = client.ConfigureDevice(string(deviceId), wgtypes.Config{ReplacePeers: false, Peers: []wgtypes.PeerConfig{cfg}})
 	if err != nil {
 		return err
 	}
@@ -644,6 +803,11 @@ func (c LocalController) SetRoutes(_ context.Context, info domain.RoutingTableIn
 	slog.Debug("setting linux routes", "interface", interfaceId, "table", info.Table, "fwMark", info.FwMark,
 		"cidrs", info.AllowedIps)
 
+	_, device, err := c.clientForDevice(string(interfaceId))
+	if err != nil {
+		return fmt.Errorf("device %s unavailable: %w", interfaceId, err)
+	}
+
 	link, err := c.nl.LinkByName(string(interfaceId))
 	if err != nil {
 		return fmt.Errorf("failed to find physical link for %s: %w", interfaceId, err)
@@ -654,11 +818,7 @@ func (c LocalController) SetRoutes(_ context.Context, info domain.RoutingTableIn
 	if err != nil {
 		return fmt.Errorf("failed to get or create routing table and fwmark for %s: %w", interfaceId, err)
 	}
-	wgDev, err := c.wg.Device(string(interfaceId))
-	if err != nil {
-		return fmt.Errorf("failed to get wg device for %s: %w", interfaceId, err)
-	}
-	currentFwMark := wgDev.FirewallMark
+	currentFwMark := device.FirewallMark
 	if int(realFwMark) != currentFwMark {
 		slog.Debug("updating fwmark for interface", "interface", interfaceId, "oldFwMark", currentFwMark,
 			"newFwMark", realFwMark, "oldTable", info.Table, "newTable", realTable)
@@ -820,8 +980,13 @@ func (c LocalController) getOrCreateRoutingTableAndFwMark(
 }
 
 func (c LocalController) updateFwMarkOnInterface(interfaceId domain.InterfaceIdentifier, fwMark int) error {
+	client, _, err := c.clientForDevice(string(interfaceId))
+	if err != nil {
+		return fmt.Errorf("device %s unavailable: %w", interfaceId, err)
+	}
+
 	// apply the new fwmark to the wireguard interface
-	err := c.wg.ConfigureDevice(string(interfaceId), wgtypes.Config{
+	err = client.ConfigureDevice(string(interfaceId), wgtypes.Config{
 		FirewallMark: &fwMark,
 	})
 	if err != nil {
@@ -875,10 +1040,18 @@ func (c LocalController) RemoveRoutes(_ context.Context, info domain.RoutingTabl
 	slog.Debug("removing linux routes", "interface", interfaceId, "table", info.Table, "fwMark", info.FwMark,
 		"cidrs", info.AllowedIps)
 
-	wgDev, err := c.wg.Device(string(interfaceId))
-	if err != nil {
-		slog.Debug("wg device already removed, route cleanup might be incomplete", "interface", interfaceId)
-		wgDev = nil
+	client, _, err := c.clientForDevice(string(interfaceId))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("device %s unavailable: %w", interfaceId, err)
+	}
+
+	var wgDev *wgtypes.Device
+	if client != nil {
+		wgDev, err = client.Device(string(interfaceId))
+		if err != nil {
+			slog.Debug("wg device already removed, route cleanup might be incomplete", "interface", interfaceId)
+			wgDev = nil
+		}
 	}
 	link, err := c.nl.LinkByName(string(interfaceId))
 	if err != nil {

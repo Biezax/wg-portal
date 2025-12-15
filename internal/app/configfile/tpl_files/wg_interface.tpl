@@ -19,6 +19,63 @@
 PrivateKey = {{ .Interface.KeyPair.PrivateKey }}
 Address = {{ CidrsToString .Interface.Addresses }}
 
+{{- if .Interface.HasAdvancedSecurity }}
+###############################
+# AmneziaWG section
+###############################
+{{- $advSec := .Interface.AdvancedSecurity}}
+
+# Junk settings
+{{- if ne $advSec.JunkPacketCount 0}}
+Jc = {{$advSec.JunkPacketCount}}
+{{- end}}
+{{- if ne $advSec.JunkPacketMinSize 0}}
+Jmin = {{$advSec.JunkPacketMinSize}}
+{{- end}}
+{{- if ne $advSec.JunkPacketMaxSize 0}}
+Jmax = {{$advSec.JunkPacketMaxSize}}
+{{- end}}
+{{- if ne $advSec.InitPacketJunkSize 0}}
+S1 = {{$advSec.InitPacketJunkSize}}
+{{- end}}
+{{- if ne $advSec.ResponsePacketJunkSize 0}}
+S2 = {{$advSec.ResponsePacketJunkSize}}
+{{- end}}
+{{- if ne $advSec.CookieReplyPacketJunkSize 0}}
+S3 = {{$advSec.CookieReplyPacketJunkSize}}
+{{- end}}
+{{- if ne $advSec.TransportPacketJunkSize 0}}
+S4 = {{ $advSec.TransportPacketJunkSize }}
+{{- end}}
+
+# Wireguard payload boundaries
+H1 = {{$advSec.InitPacketMagicHeader}}
+H2 = {{$advSec.ResponsePacketMagicHeader}}
+H3 = {{$advSec.UnderloadPacketMagicHeader}}
+H4 = {{$advSec.TransportPacketMagicHeader}}
+
+# Custom junk settings
+{{- if IsAwgString $advSec.FirstSpecialJunkPacket}}
+I1 = {{ $advSec.FirstSpecialJunkPacket }}
+{{- end}}
+{{- if IsAwgString $advSec.SecondSpecialJunkPacket}}
+I2 = {{ $advSec.SecondSpecialJunkPacket }}
+{{- end}}
+{{- if IsAwgString $advSec.ThirdSpecialJunkPacket}}
+I3 = {{ $advSec.ThirdSpecialJunkPacket }}
+{{- end}}
+{{- if IsAwgString $advSec.FourthSpecialJunkPacket}}
+I4 = {{ $advSec.FourthSpecialJunkPacket }}
+{{- end}}
+{{- if IsAwgString $advSec.FifthSpecialJunkPacket}}
+I5 = {{ $advSec.FifthSpecialJunkPacket }}
+{{- end}}
+
+###############################
+# End of AmneziaWG section
+###############################
+{{end}}
+
 # Misc. settings (optional)
 {{- if ne .Interface.ListenPort 0}}
 ListenPort = {{ .Interface.ListenPort }}

@@ -44,7 +44,26 @@ export function freshInterface() {
 
     TotalPeers: 0,
     EnabledPeers: 0,
-    Filename: ""
+    Filename: "",
+    AdvancedSecurity: {
+      jc: 0,
+      jmin: 0,
+      jmax: 0,
+      s1: 0,
+      s2: 0,
+      s3: 0,
+      s4: 0,
+      h1: "1",
+      h2: "2",
+      h3: "3",
+      h4: "4",
+      i1: null,
+      i2: null,
+      i3: null,
+      i4: null,
+      i5: null,
+    },
+    UsesAdvancedSecurity: false,
   }
 }
 

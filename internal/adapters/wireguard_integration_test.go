@@ -25,7 +25,8 @@ func setup(t *testing.T) *WgRepo {
 		t.Fatalf("this tests need to be executed as root user")
 	}
 
-	repo := NewWireGuardRepository()
+	repo, err := NewWireGuardRepository()
+	require.NoError(t, err)
 
 	return repo
 }

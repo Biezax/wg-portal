@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Biezax/wgctrl/wgtypes"
 	"golang.org/x/sys/unix"
 
 	"github.com/h44z/wg-portal/internal"
@@ -27,6 +28,28 @@ var allowedFileNameRegex = regexp.MustCompile("[^a-zA-Z0-9-_]+")
 type InterfaceIdentifier string
 type InterfaceType string
 type InterfaceBackend string
+
+type AdvancedSecurity struct {
+	JunkPacketCount   uint16 `json:"jc"`
+	JunkPacketMinSize uint16 `json:"jmin"`
+	JunkPacketMaxSize uint16 `json:"jmax"`
+
+	InitPacketJunkSize        uint16 `json:"s1"`
+	ResponsePacketJunkSize    uint16 `json:"s2"`
+	CookieReplyPacketJunkSize uint16 `json:"s3"`
+	TransportPacketJunkSize   uint16 `json:"s4"`
+
+	InitPacketMagicHeader      string `json:"h1"`
+	ResponsePacketMagicHeader  string `json:"h2"`
+	UnderloadPacketMagicHeader string `json:"h3"`
+	TransportPacketMagicHeader string `json:"h4"`
+
+	FirstSpecialJunkPacket  *string `json:"i1"`
+	SecondSpecialJunkPacket *string `json:"i2"`
+	ThirdSpecialJunkPacket  *string `json:"i3"`
+	FourthSpecialJunkPacket *string `json:"i4"`
+	FifthSpecialJunkPacket  *string `json:"i5"`
+}
 
 type Interface struct {
 	BaseModel
@@ -77,6 +100,13 @@ type Interface struct {
 	PeerDefPostUp   string // default action that is executed after the device is up
 	PeerDefPreDown  string // default action that is executed before the device is down
 	PeerDefPostDown string // default action that is executed after the device is down
+
+	ClientType       wgtypes.ClientType
+	AdvancedSecurity *AdvancedSecurity `gorm:"serializer:json"`
+}
+
+func (d *Interface) HasAdvancedSecurity() bool {
+	return d.AdvancedSecurity != nil
 }
 
 // PublicInfo returns a copy of the interface with only the public information.
@@ -230,7 +260,15 @@ type PhysicalInterface struct {
 	BytesUpload   uint64
 	BytesDownload uint64
 
+	ClientType wgtypes.ClientType
+
+	AdvancedSecurity *AdvancedSecurity
+
 	backendExtras any // additional backend-specific extras, e.g., domain.MikrotikInterfaceExtras
+}
+
+func (pi *PhysicalInterface) HasAdvancedSecurity() bool {
+	return pi.AdvancedSecurity != nil
 }
 
 func (p *PhysicalInterface) GetExtras() any {
@@ -240,7 +278,8 @@ func (p *PhysicalInterface) GetExtras() any {
 func (p *PhysicalInterface) SetExtras(extras any) {
 	switch extras.(type) {
 	case MikrotikInterfaceExtras: // OK
-	default: // we only support MikrotikInterfaceExtras for now
+	case PfsenseInterfaceExtras: // OK
+	default: // we only support MikrotikInterfaceExtras and PfsenseInterfaceExtras for now
 		panic(fmt.Sprintf("unsupported interface backend extras type %T", extras))
 	}
 
@@ -286,6 +325,8 @@ func ConvertPhysicalInterface(pi *PhysicalInterface) *Interface {
 		PeerDefPostUp:              "",
 		PeerDefPreDown:             "",
 		PeerDefPostDown:            "",
+		AdvancedSecurity:           pi.AdvancedSecurity,
+		ClientType:                 pi.ClientType,
 	}
 
 	if pi.GetExtras() == nil {
@@ -297,6 +338,14 @@ func ConvertPhysicalInterface(pi *PhysicalInterface) *Interface {
 	switch pi.ImportSource {
 	case ControllerTypeMikrotik:
 		extras := pi.GetExtras().(MikrotikInterfaceExtras)
+		iface.DisplayName = extras.Comment
+		if extras.Disabled {
+			iface.Disabled = &now
+		} else {
+			iface.Disabled = nil
+		}
+	case ControllerTypePfsense:
+		extras := pi.GetExtras().(PfsenseInterfaceExtras)
 		iface.DisplayName = extras.Comment
 		if extras.Disabled {
 			iface.Disabled = &now
@@ -317,10 +366,18 @@ func MergeToPhysicalInterface(pi *PhysicalInterface, i *Interface) {
 	pi.FirewallMark = i.FirewallMark
 	pi.DeviceUp = !i.IsDisabled()
 	pi.Addresses = i.Addresses
+	pi.AdvancedSecurity = i.AdvancedSecurity
+	pi.ClientType = i.ClientType
 
 	switch pi.ImportSource {
 	case ControllerTypeMikrotik:
 		extras := MikrotikInterfaceExtras{
+			Comment:  i.DisplayName,
+			Disabled: i.IsDisabled(),
+		}
+		pi.SetExtras(extras)
+	case ControllerTypePfsense:
+		extras := PfsenseInterfaceExtras{
 			Comment:  i.DisplayName,
 			Disabled: i.IsDisabled(),
 		}

@@ -3,6 +3,8 @@ package model
 import (
 	"time"
 
+	"github.com/Biezax/wgctrl/wgtypes"
+
 	"github.com/h44z/wg-portal/internal"
 	"github.com/h44z/wg-portal/internal/config"
 	"github.com/h44z/wg-portal/internal/domain"
@@ -52,6 +54,9 @@ type Interface struct {
 	EnabledPeers int    `json:"EnabledPeers"`
 	TotalPeers   int    `json:"TotalPeers"`
 	Filename     string `json:"Filename"` // the filename of the config file, for example: wg0.conf
+
+	AdvancedSecurity     *domain.AdvancedSecurity `json:"AdvancedSecurity"`
+	UsesAdvancedSecurity bool                     `json:"UsesAdvancedSecurity"`
 }
 
 func NewInterface(src *domain.Interface, peers []domain.Peer) *Interface {
@@ -93,6 +98,9 @@ func NewInterface(src *domain.Interface, peers []domain.Peer) *Interface {
 		EnabledPeers: 0,
 		TotalPeers:   0,
 		Filename:     src.GetConfigFileName(),
+
+		AdvancedSecurity:     src.AdvancedSecurity,
+		UsesAdvancedSecurity: src.HasAdvancedSecurity(),
 	}
 
 	if iface.Backend == "" {
@@ -170,6 +178,11 @@ func NewDomainInterface(src *Interface) *domain.Interface {
 		PeerDefPostUp:              src.PeerDefPostUp,
 		PeerDefPreDown:             src.PeerDefPreDown,
 		PeerDefPostDown:            src.PeerDefPostDown,
+	}
+
+	if src.UsesAdvancedSecurity {
+		res.AdvancedSecurity = src.AdvancedSecurity
+		res.ClientType = wgtypes.AmneziaClient
 	}
 
 	if src.Disabled {

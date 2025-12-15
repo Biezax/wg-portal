@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"github.com/Biezax/wgctrl/wgtypes"
 	"gorm.io/gorm"
 
 	"github.com/h44z/wg-portal/internal"
@@ -123,6 +123,7 @@ func (p *Peer) ApplyInterfaceDefaults(in *Interface) {
 	p.Interface.PostUp.TrySetValue(in.PeerDefPostUp)
 	p.Interface.PreDown.TrySetValue(in.PeerDefPreDown)
 	p.Interface.PostDown.TrySetValue(in.PeerDefPostDown)
+	p.Interface.AdvancedSecurity = in.AdvancedSecurity
 }
 
 func (p *Peer) GenerateDisplayName(prefix string) {
@@ -146,6 +147,7 @@ func (p *Peer) OverwriteUserEditableFields(userPeer *Peer, cfg *config.Config) {
 	p.ExpiresAt = userPeer.ExpiresAt
 	p.Disabled = userPeer.Disabled
 	p.DisabledReason = userPeer.DisabledReason
+	p.Interface.AdvancedSecurity = userPeer.Interface.AdvancedSecurity
 }
 
 type PeerInterfaceConfig struct {
@@ -165,6 +167,12 @@ type PeerInterfaceConfig struct {
 	PostUp   ConfigOption[string] `gorm:"embedded;embeddedPrefix:iface_post_up_"`   // action that is executed after the device is up
 	PreDown  ConfigOption[string] `gorm:"embedded;embeddedPrefix:iface_pre_down_"`  // action that is executed before the device is down
 	PostDown ConfigOption[string] `gorm:"embedded;embeddedPrefix:iface_post_down_"` // action that is executed after the device is down
+
+	AdvancedSecurity *AdvancedSecurity `gorm:"serializer:json"`
+}
+
+func (p *PeerInterfaceConfig) HasAdvancedSecurity() bool {
+	return p.AdvancedSecurity != nil
 }
 
 func (p *PeerInterfaceConfig) AddressStr() string {
@@ -186,8 +194,9 @@ type PhysicalPeer struct {
 	BytesUpload   uint64 // upload bytes are the number of bytes that the remote peer has sent to the server
 	BytesDownload uint64 // upload bytes are the number of bytes that the remote peer has received from the server
 
-	ImportSource  string // import source (wgctrl, file, ...)
-	backendExtras any    // additional backend-specific extras, e.g., domain.MikrotikPeerExtras
+	AdvancedSecurity *AdvancedSecurity
+	ImportSource     string // import source (wgctrl, file, ...)
+	backendExtras    any    // additional backend-specific extras, e.g., domain.MikrotikPeerExtras
 }
 
 func (p *PhysicalPeer) GetPresharedKey() *wgtypes.Key {
@@ -240,7 +249,8 @@ func (p *PhysicalPeer) SetExtras(extras any) {
 	switch extras.(type) {
 	case MikrotikPeerExtras: // OK
 	case LocalPeerExtras: // OK
-	default: // we only support MikrotikPeerExtras and LocalPeerExtras for now
+	case PfsensePeerExtras: // OK
+	default: // we only support MikrotikPeerExtras, LocalPeerExtras, and PfsensePeerExtras for now
 		panic(fmt.Sprintf("unsupported peer backend extras type %T", extras))
 	}
 
@@ -261,7 +271,8 @@ func ConvertPhysicalPeer(pp *PhysicalPeer) *Peer {
 		InterfaceIdentifier: "",
 		Disabled:            nil,
 		Interface: PeerInterfaceConfig{
-			KeyPair: pp.KeyPair,
+			KeyPair:          pp.KeyPair,
+			AdvancedSecurity: pp.AdvancedSecurity,
 		},
 	}
 
@@ -301,6 +312,26 @@ func ConvertPhysicalPeer(pp *PhysicalPeer) *Peer {
 			peer.Disabled = nil
 			peer.DisabledReason = ""
 		}
+	case ControllerTypePfsense:
+		extras := pp.GetExtras().(PfsensePeerExtras)
+		peer.Notes = extras.Comment
+		peer.DisplayName = extras.Name
+		if extras.ClientEndpoint != "" { // if the client endpoint is set, we assume that this is a client peer
+			peer.Endpoint = NewConfigOption(extras.ClientEndpoint, true)
+			peer.Interface.Type = InterfaceTypeClient
+			peer.Interface.Addresses, _ = CidrsFromString(extras.ClientAddress)
+			peer.Interface.DnsStr = NewConfigOption(extras.ClientDns, true)
+			peer.PersistentKeepalive = NewConfigOption(extras.ClientKeepalive, true)
+		} else {
+			peer.Interface.Type = InterfaceTypeServer
+		}
+		if extras.Disabled {
+			peer.Disabled = &now
+			peer.DisabledReason = "Disabled by pfSense controller"
+		} else {
+			peer.Disabled = nil
+			peer.DisabledReason = ""
+		}
 	}
 
 	return peer
@@ -310,6 +341,7 @@ func MergeToPhysicalPeer(pp *PhysicalPeer, p *Peer) {
 	pp.Identifier = p.Identifier
 	pp.PresharedKey = p.PresharedKey
 	pp.PublicKey = p.Interface.PublicKey
+	pp.AdvancedSecurity = p.Interface.AdvancedSecurity
 
 	switch p.Interface.Type {
 	case InterfaceTypeClient: // this means that the corresponding interface in wgportal is a server interface
@@ -353,6 +385,18 @@ func MergeToPhysicalPeer(pp *PhysicalPeer, p *Peer) {
 	case ControllerTypeLocal:
 		extras := LocalPeerExtras{
 			Disabled: p.IsDisabled(),
+		}
+		pp.SetExtras(extras)
+	case ControllerTypePfsense:
+		extras := PfsensePeerExtras{
+			Id:              "",
+			Name:            p.DisplayName,
+			Comment:         p.Notes,
+			Disabled:        p.IsDisabled(),
+			ClientEndpoint:  p.Endpoint.GetValue(),
+			ClientAddress:   CidrsToString(p.Interface.Addresses),
+			ClientDns:       p.Interface.DnsStr.GetValue(),
+			ClientKeepalive: p.PersistentKeepalive.GetValue(),
 		}
 		pp.SetExtras(extras)
 	}
