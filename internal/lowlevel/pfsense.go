@@ -12,8 +12,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/h44z/wg-portal/internal"
-	"github.com/h44z/wg-portal/internal/config"
+	"github.com/biezax/wg-portal/internal"
+	"github.com/biezax/wg-portal/internal/config"
 )
 
 // PfsenseApiClient provides HTTP client functionality for interacting with the pfSense REST API.

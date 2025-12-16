@@ -12,10 +12,10 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"github.com/h44z/wg-portal/internal/app"
-	"github.com/h44z/wg-portal/internal/app/audit"
-	"github.com/h44z/wg-portal/internal/config"
-	"github.com/h44z/wg-portal/internal/domain"
+	"github.com/biezax/wg-portal/internal/app"
+	"github.com/biezax/wg-portal/internal/app/audit"
+	"github.com/biezax/wg-portal/internal/config"
+	"github.com/biezax/wg-portal/internal/domain"
 )
 
 type WebAuthnUserManager interface {

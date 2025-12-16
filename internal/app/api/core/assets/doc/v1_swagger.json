@@ -5,11 +5,11 @@
         "title": "WireGuard Portal Public API",
         "contact": {
             "name": "WireGuard Portal Project",
-            "url": "https://github.com/h44z/wg-portal"
+            "url": "https://github.com/biezax/wg-portal"
         },
         "license": {
             "name": "MIT",
-            "url": "https://github.com/h44z/wg-portal/blob/master/LICENSE.txt"
+            "url": "https://github.com/biezax/wg-portal/blob/master/LICENSE.txt"
         },
         "version": "1.0"
     },

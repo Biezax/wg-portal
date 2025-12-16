@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/h44z/wg-portal/internal"
-	"github.com/h44z/wg-portal/internal/config"
+	"github.com/biezax/wg-portal/internal"
+	"github.com/biezax/wg-portal/internal/config"
 )
 
 // region models

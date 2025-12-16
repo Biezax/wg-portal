@@ -1,12 +1,12 @@
 # WireGuard Portal v2
 
-[![Build Status](https://github.com/h44z/wg-portal/actions/workflows/docker-publish.yml/badge.svg?event=push)](https://github.com/h44z/wg-portal/actions/workflows/docker-publish.yml)
+[![Build Status](https://github.com/biezax/wg-portal/actions/workflows/docker-publish.yml/badge.svg?event=push)](https://github.com/biezax/wg-portal/actions/workflows/docker-publish.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-![GitHub last commit](https://img.shields.io/github/last-commit/h44z/wg-portal/master)
-[![Go Report Card](https://goreportcard.com/badge/github.com/h44z/wg-portal)](https://goreportcard.com/report/github.com/h44z/wg-portal)
-![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/h44z/wg-portal)
-![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/h44z/wg-portal)
-[![Docker Pulls](https://img.shields.io/docker/pulls/h44z/wg-portal.svg)](https://hub.docker.com/r/wgportal/wg-portal/)
+![GitHub last commit](https://img.shields.io/github/last-commit/biezax/wg-portal/master)
+[![Go Report Card](https://goreportcard.com/badge/github.com/biezax/wg-portal)](https://goreportcard.com/report/github.com/biezax/wg-portal)
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/biezax/wg-portal)
+![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/biezax/wg-portal)
+[![Docker Pulls](https://img.shields.io/docker/pulls/biezax/wg-portal.svg)](https://hub.docker.com/r/biezax/wg-portal/)
 
 ## Introduction
 <!-- Text from this line # is included in docs/documentation/overview.md -->
@@ -32,7 +32,7 @@ The configuration portal supports using a database (SQLite, MySQL, MsSQL, or Pos
 * Docker ready
 * Can be used with existing WireGuard setups
 * Support for multiple WireGuard interfaces
-* Supports multiple WireGuard backends (wgctrl or MikroTik)
+* Supports multiple WireGuard backends (wgctrl, MikroTik, or pfSense)
 * Peer Expiry Feature
 * Handles route and DNS settings like wg-quick does
 * Exposes Prometheus metrics for monitoring and alerting
@@ -66,14 +66,9 @@ For the complete documentation visit [wgportal.org](https://wgportal.org).
 
 Thanks so much for all your contributions! They’re truly appreciated and help keep WireGuard Portal moving ahead.
 
-<a href="https://github.com/h44z/wg-portal/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=h44z/wg-portal" />
+<a href="https://github.com/biezax/wg-portal/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=biezax/wg-portal" />
 </a>
 
 Want to support the project? You can buy me a coffee or join as a contributor - every bit of support helps! 
-[Become a sponsor!](https://github.com/sponsors/h44z)
-
-
-> [!IMPORTANT]
-> Since the project was accepted by the Docker-Sponsored Open Source Program, the Docker image location has moved to [wgportal/wg-portal](https://hub.docker.com/r/wgportal/wg-portal).
-> Please update the Docker image from **h44z/wg-portal** to **wgportal/wg-portal**.
+[Become a sponsor!](https://github.com/sponsors/biezax)

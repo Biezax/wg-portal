@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/h44z/wg-portal/internal/app/api/v1/models"
-	"github.com/h44z/wg-portal/internal/config"
-	"github.com/h44z/wg-portal/internal/domain"
+	"github.com/biezax/wg-portal/internal/app/api/v1/models"
+	"github.com/biezax/wg-portal/internal/config"
+	"github.com/biezax/wg-portal/internal/domain"
 )
 
 type ProvisioningServiceUserManagerRepo interface {

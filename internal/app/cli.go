@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/h44z/wg-portal/internal/config"
+	"github.com/biezax/wg-portal/internal/config"
 )
 
 // HandleProgramArgs handles program arguments and returns true if the program should exit.

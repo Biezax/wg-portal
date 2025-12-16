@@ -8,7 +8,7 @@ import (
 	"io"
 	"text/template"
 
-	"github.com/h44z/wg-portal/internal/domain"
+	"github.com/biezax/wg-portal/internal/domain"
 )
 
 //go:embed tpl_files/*

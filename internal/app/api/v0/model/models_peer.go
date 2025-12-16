@@ -3,8 +3,8 @@ package model
 import (
 	"time"
 
-	"github.com/h44z/wg-portal/internal"
-	"github.com/h44z/wg-portal/internal/domain"
+	"github.com/biezax/wg-portal/internal"
+	"github.com/biezax/wg-portal/internal/domain"
 )
 
 const ExpiryDateTimeLayout = "\"2006-01-02\""

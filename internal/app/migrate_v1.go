@@ -10,9 +10,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/h44z/wg-portal/internal/adapters"
-	"github.com/h44z/wg-portal/internal/config"
-	"github.com/h44z/wg-portal/internal/domain"
+	"github.com/biezax/wg-portal/internal/adapters"
+	"github.com/biezax/wg-portal/internal/config"
+	"github.com/biezax/wg-portal/internal/domain"
 )
 
 func migrateFromV1(db *gorm.DB, source, typ string) error {

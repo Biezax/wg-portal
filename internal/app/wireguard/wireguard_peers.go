@@ -8,9 +8,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/h44z/wg-portal/internal/app"
-	"github.com/h44z/wg-portal/internal/app/audit"
-	"github.com/h44z/wg-portal/internal/domain"
+	"github.com/biezax/wg-portal/internal/app"
+	"github.com/biezax/wg-portal/internal/app/audit"
+	"github.com/biezax/wg-portal/internal/domain"
 )
 
 // CreateDefaultPeer creates a default peer for the given user on all server interfaces.

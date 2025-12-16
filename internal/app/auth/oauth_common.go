@@ -3,9 +3,9 @@ package auth
 import (
 	"strings"
 
-	"github.com/h44z/wg-portal/internal"
-	"github.com/h44z/wg-portal/internal/config"
-	"github.com/h44z/wg-portal/internal/domain"
+	"github.com/biezax/wg-portal/internal"
+	"github.com/biezax/wg-portal/internal/config"
+	"github.com/biezax/wg-portal/internal/domain"
 )
 
 // parseOauthUserInfo parses the raw user info from the oauth provider and maps it to the internal user info struct

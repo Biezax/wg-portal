@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/h44z/wg-portal/internal/app"
-	"github.com/h44z/wg-portal/internal/app/audit"
-	"github.com/h44z/wg-portal/internal/config"
-	"github.com/h44z/wg-portal/internal/domain"
+	"github.com/biezax/wg-portal/internal/app"
+	"github.com/biezax/wg-portal/internal/app/audit"
+	"github.com/biezax/wg-portal/internal/config"
+	"github.com/biezax/wg-portal/internal/domain"
 )
 
 // GetInterfaceAndPeers returns the interface and all peers for the given interface identifier.

@@ -3,7 +3,7 @@ package models
 import (
 	"time"
 
-	"github.com/h44z/wg-portal/internal/domain"
+	"github.com/biezax/wg-portal/internal/domain"
 )
 
 // User represents a user in the system.

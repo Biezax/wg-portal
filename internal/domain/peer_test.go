@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/h44z/wg-portal/internal/config"
+	"github.com/biezax/wg-portal/internal/config"
 )
 
 func TestPeer_IsDisabled(t *testing.T) {

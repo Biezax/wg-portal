@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	"github.com/h44z/wg-portal/internal/domain"
+	"github.com/biezax/wg-portal/internal/domain"
 )
 
 type User struct {

@@ -474,7 +474,7 @@ definitions:
 info:
   contact:
     name: WireGuard Portal Developers
-    url: https://github.com/h44z/wg-portal
+    url: https://github.com/biezax/wg-portal
   description: WireGuard Portal API - UI Endpoints
   title: WireGuard Portal SPA-UI API
   version: "0.0"

@@ -1,4 +1,4 @@
-Starting from v2, each [release](https://github.com/h44z/wg-portal/releases) includes compiled binaries for supported platforms.
+Starting from v2, each [release](https://github.com/biezax/wg-portal/releases) includes compiled binaries for supported platforms.
 These binary versions can be manually downloaded and installed.
 
 ## Download
@@ -12,19 +12,19 @@ Make sure that you download the correct binary for your architecture. The availa
 With `curl`:
 
 ```shell
-curl -L -o wg-portal https://github.com/h44z/wg-portal/releases/download/${WG_PORTAL_VERSION}/wg-portal_linux_amd64 
+curl -L -o wg-portal https://github.com/biezax/wg-portal/releases/download/${WG_PORTAL_VERSION}/wg-portal_linux_amd64 
 ```
 
 With `wget`:
 
 ```shell
-wget -O wg-portal https://github.com/h44z/wg-portal/releases/download/${WG_PORTAL_VERSION}/wg-portal_linux_amd64
+wget -O wg-portal https://github.com/biezax/wg-portal/releases/download/${WG_PORTAL_VERSION}/wg-portal_linux_amd64
 ```
 
 with `gh cli`:
 
 ```shell
-gh release download ${WG_PORTAL_VERSION} --repo h44z/wg-portal --output wg-portal --pattern '*amd64'
+gh release download ${WG_PORTAL_VERSION} --repo biezax/wg-portal --output wg-portal --pattern '*amd64'
 ```
 
 
@@ -38,5 +38,5 @@ sudo install wg-portal /opt/wg-portal/
 
 ## Unreleased versions (master branch builds)
 
-Unreleased versions can be fetched directly from the artifacts section of the [GitHub Workflow](https://github.com/h44z/wg-portal/actions/workflows/docker-publish.yml?query=branch%3Amaster).
+Unreleased versions can be fetched directly from the artifacts section of the [GitHub Workflow](https://github.com/biezax/wg-portal/actions/workflows/docker-publish.yml?query=branch%3Amaster).
 

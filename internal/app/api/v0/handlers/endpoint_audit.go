@@ -6,10 +6,10 @@ import (
 
 	"github.com/go-pkgz/routegroup"
 
-	"github.com/h44z/wg-portal/internal/app/api/core/respond"
-	"github.com/h44z/wg-portal/internal/app/api/v0/model"
-	"github.com/h44z/wg-portal/internal/config"
-	"github.com/h44z/wg-portal/internal/domain"
+	"github.com/biezax/wg-portal/internal/app/api/core/respond"
+	"github.com/biezax/wg-portal/internal/app/api/v0/model"
+	"github.com/biezax/wg-portal/internal/config"
+	"github.com/biezax/wg-portal/internal/domain"
 )
 
 type AuditService interface {

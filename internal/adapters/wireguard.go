@@ -11,8 +11,8 @@ import (
 	"github.com/Biezax/wgctrl/wgtypes"
 	"github.com/vishvananda/netlink"
 
-	"github.com/h44z/wg-portal/internal/domain"
-	"github.com/h44z/wg-portal/internal/lowlevel"
+	"github.com/biezax/wg-portal/internal/domain"
+	"github.com/biezax/wg-portal/internal/lowlevel"
 )
 
 // WgRepo implements all low-level WireGuard interactions.
@@ -35,7 +35,7 @@ func NewWireGuardRepository() (*WgRepo, error) {
 	for _, clientType := range clientTypes {
 		client, err := wgctrl.New(clientType)
 		if err != nil {
-			slog.Warn("failed to init wgctrl: %s\n", err.Error())
+			log.Warn("failed to init wgctrl", "error", err)
 			continue
 		}
 
@@ -97,7 +97,7 @@ func (r *WgRepo) GetInterfaces(_ context.Context) ([]domain.PhysicalInterface, e
 		for _, err := range devicesErrors {
 			formatted += fmt.Sprintf("- %s\n", err.Error())
 		}
-		return nil, fmt.Errorf(formatted)
+		return nil, errors.New(formatted)
 	}
 
 	interfaces := make([]domain.PhysicalInterface, 0, len(devices))

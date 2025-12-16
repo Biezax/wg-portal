@@ -13,8 +13,8 @@ import (
 	"github.com/Biezax/wgctrl/wgtypes"
 	"golang.org/x/sys/unix"
 
-	"github.com/h44z/wg-portal/internal"
-	"github.com/h44z/wg-portal/internal/config"
+	"github.com/biezax/wg-portal/internal"
+	"github.com/biezax/wg-portal/internal/config"
 )
 
 const (

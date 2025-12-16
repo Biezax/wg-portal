@@ -10,8 +10,8 @@ import (
 	"github.com/Biezax/wgctrl/wgtypes"
 	"gorm.io/gorm"
 
-	"github.com/h44z/wg-portal/internal"
-	"github.com/h44z/wg-portal/internal/config"
+	"github.com/biezax/wg-portal/internal"
+	"github.com/biezax/wg-portal/internal/config"
 )
 
 type PeerIdentifier string
