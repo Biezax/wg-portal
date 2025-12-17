@@ -10,6 +10,7 @@ import (
 
 	"github.com/biezax/wg-portal/internal/app"
 	"github.com/biezax/wg-portal/internal/app/audit"
+	"github.com/biezax/wg-portal/internal/config"
 	"github.com/biezax/wg-portal/internal/domain"
 )
 
@@ -379,9 +380,12 @@ func (m Manager) DeletePeer(ctx context.Context, id domain.PeerIdentifier) error
 		return fmt.Errorf("unable to find interface %s: %w", peer.InterfaceIdentifier, err)
 	}
 
-	err = m.wg.GetController(*iface).DeletePeer(ctx, peer.InterfaceIdentifier, id)
-	if err != nil {
-		return fmt.Errorf("wireguard failed to delete peer %s: %w", id, err)
+	applyToHost := m.cfg.Core.WireGuardMode != config.WireGuardModeDisabled
+	if applyToHost {
+		err = m.wg.GetController(*iface).DeletePeer(ctx, peer.InterfaceIdentifier, id)
+		if err != nil {
+			return fmt.Errorf("wireguard failed to delete peer %s: %w", id, err)
+		}
 	}
 
 	err = m.db.DeletePeer(ctx, id)
@@ -395,14 +399,16 @@ func (m Manager) DeletePeer(ctx context.Context, id domain.PeerIdentifier) error
 	}
 
 	m.bus.Publish(app.TopicPeerDeleted, *peer)
-	// Update routes after peers have changed
-	m.bus.Publish(app.TopicRouteUpdate, domain.RoutingTableInfo{
-		Interface:  *iface,
-		AllowedIps: iface.GetAllowedIPs(peers),
-		FwMark:     iface.FirewallMark,
-		Table:      iface.GetRoutingTable(),
-		TableStr:   iface.RoutingTable,
-	})
+	if applyToHost {
+		// Update routes after peers have changed
+		m.bus.Publish(app.TopicRouteUpdate, domain.RoutingTableInfo{
+			Interface:  *iface,
+			AllowedIps: iface.GetAllowedIPs(peers),
+			FwMark:     iface.FirewallMark,
+			Table:      iface.GetRoutingTable(),
+			TableStr:   iface.RoutingTable,
+		})
+	}
 	// Update interface after peers have changed
 	m.bus.Publish(app.TopicPeerInterfaceUpdated, peer.InterfaceIdentifier)
 
@@ -451,6 +457,7 @@ func (m Manager) GetUserPeerStats(ctx context.Context, id domain.UserIdentifier)
 
 func (m Manager) savePeers(ctx context.Context, peers ...*domain.Peer) error {
 	interfaces := make(map[domain.InterfaceIdentifier]domain.Interface)
+	applyToHost := m.cfg.Core.WireGuardMode != config.WireGuardModeDisabled
 
 	for _, peer := range peers {
 		// get interface from db if it is not yet in the map
@@ -464,19 +471,19 @@ func (m Manager) savePeers(ctx context.Context, peers ...*domain.Peer) error {
 
 		iface := interfaces[peer.InterfaceIdentifier]
 
-		// Always save the peer to the backend, regardless of disabled/expired state
-		// The backend will handle the disabled state appropriately
 		err := m.db.SavePeer(ctx, peer.Identifier, func(p *domain.Peer) (*domain.Peer, error) {
 			peer.CopyCalculatedAttributes(p)
 			peer.Interface.AdvancedSecurity = iface.AdvancedSecurity
 
-			err := m.wg.GetController(iface).SavePeer(ctx, peer.InterfaceIdentifier, peer.Identifier,
-				func(pp *domain.PhysicalPeer) (*domain.PhysicalPeer, error) {
-					domain.MergeToPhysicalPeer(pp, peer)
-					return pp, nil
-				})
-			if err != nil {
-				return nil, fmt.Errorf("failed to save wireguard peer %s: %w", peer.Identifier, err)
+			if applyToHost {
+				err := m.wg.GetController(iface).SavePeer(ctx, peer.InterfaceIdentifier, peer.Identifier,
+					func(pp *domain.PhysicalPeer) (*domain.PhysicalPeer, error) {
+						domain.MergeToPhysicalPeer(pp, peer)
+						return pp, nil
+					})
+				if err != nil {
+					return nil, fmt.Errorf("failed to save wireguard peer %s: %w", peer.Identifier, err)
+				}
 			}
 
 			return peer, nil
@@ -497,19 +504,21 @@ func (m Manager) savePeers(ctx context.Context, peers ...*domain.Peer) error {
 	}
 
 	// Update routes after peers have changed
-	for id, iface := range interfaces {
-		interfacePeers, err := m.db.GetInterfacePeers(ctx, id)
-		if err != nil {
-			return fmt.Errorf("failed to re-load peers for interface %s: %w", id, err)
-		}
+	if applyToHost {
+		for id, iface := range interfaces {
+			interfacePeers, err := m.db.GetInterfacePeers(ctx, id)
+			if err != nil {
+				return fmt.Errorf("failed to re-load peers for interface %s: %w", id, err)
+			}
 
-		m.bus.Publish(app.TopicRouteUpdate, domain.RoutingTableInfo{
-			Interface:  iface,
-			AllowedIps: iface.GetAllowedIPs(interfacePeers),
-			FwMark:     iface.FirewallMark,
-			Table:      iface.GetRoutingTable(),
-			TableStr:   iface.RoutingTable,
-		})
+			m.bus.Publish(app.TopicRouteUpdate, domain.RoutingTableInfo{
+				Interface:  iface,
+				AllowedIps: iface.GetAllowedIPs(interfacePeers),
+				FwMark:     iface.FirewallMark,
+				Table:      iface.GetRoutingTable(),
+				TableStr:   iface.RoutingTable,
+			})
+		}
 	}
 
 	for iface := range interfaces {

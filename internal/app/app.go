@@ -16,6 +16,7 @@ import (
 type WireGuardManager interface {
 	ImportNewInterfaces(ctx context.Context, filter ...domain.InterfaceIdentifier) (int, error)
 	RestoreInterfaceState(ctx context.Context, updateDbOnError bool, filter ...domain.InterfaceIdentifier) error
+	BootstrapInterfacesFromConfig(ctx context.Context) (bool, error)
 }
 
 type UserManager interface {
@@ -60,8 +61,22 @@ func Initialize(
 		slog.Info("Local Admin user disabled!")
 	}
 
-	if err := a.importNewInterfaces(startupContext); err != nil {
-		return fmt.Errorf("failed to import new interfaces: %w", err)
+	bootstrapped, err := wg.BootstrapInterfacesFromConfig(startupContext)
+	if err != nil {
+		return fmt.Errorf("failed to bootstrap interfaces: %w", err)
+	}
+
+	if cfg.Core.WireGuardMode == config.WireGuardModeDisabled {
+		slog.Info("WireGuard host management disabled")
+		return nil
+	}
+
+	if !bootstrapped {
+		if err := a.importNewInterfaces(startupContext); err != nil {
+			return fmt.Errorf("failed to import new interfaces: %w", err)
+		}
+	} else {
+		slog.Info("interfaces bootstrapped from config", "count", len(cfg.Provisioning.Interfaces))
 	}
 
 	if err := a.restoreInterfaceState(startupContext); err != nil {

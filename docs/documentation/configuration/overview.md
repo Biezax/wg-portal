@@ -146,6 +146,14 @@ More advanced options are found in the subsequent `Advanced` section.
 - **Environment Variable:** `WG_PORTAL_CORE_ADMIN_API_TOKEN`
 - **Description:** An API token for the admin user. If a token is provided, the REST API can be accessed using this token. If empty, the API is initially disabled for the admin user.
 
+### `wireguard_mode`
+- **Default:** `disabled`
+- **Environment Variable:** `WG_PORTAL_CORE_WIREGUARD_MODE`
+- **Description:** Controls WireGuard host management mode:
+    - `disabled` - Portal works as UI/database manager only, without managing WireGuard on the host
+    - `wireguard` - Standard WireGuard mode
+    - `amneziawg` - AmneziaWG mode (obfuscated WireGuard)
+
 ### `editable_keys`
 - **Default:** `true`
 - **Environment Variable:** `WG_PORTAL_CORE_EDITABLE_KEYS`
@@ -862,3 +870,56 @@ Further details can be found in the [usage documentation](../usage/webhooks.md).
 - **Default:** `10s`
 - **Environment Variable:** `WG_PORTAL_WEBHOOK_TIMEOUT`
 - **Description:** The timeout for the webhook request. If the request takes longer than this, it is aborted.
+
+---
+
+## Provisioning
+
+The provisioning section allows declarative interface creation from config on first startup (when database is empty).
+
+### Example
+
+```yaml
+provisioning:
+  interfaces:
+    - identifier: wg0
+      display_name: Main VPN
+      mode: server  # server, client, any
+      enabled: true
+      listen_port: 51820
+      addresses:
+        - 10.0.0.1/24
+      dns:
+        - 1.1.1.1
+      mtu: 1420
+      peer_def_endpoint: vpn.example.com:51820
+      peer_def_allowed_ips:
+        - 0.0.0.0/0
+      peer_def_persistent_keepalive: 25
+      # AmneziaWG obfuscation (optional, requires wireguard_mode: amneziawg)
+      advanced_security:
+        jc: 4
+        jmin: 50
+        jmax: 1000
+        s1: 20
+        s2: 20
+```
+
+### Interface Options
+
+| Field | Description |
+|-------|-------------|
+| `identifier` | **Required.** Unique interface name (e.g., `wg0`) |
+| `display_name` | Human-readable name |
+| `mode` | Interface type: `server`, `client`, or `any` |
+| `enabled` | Whether interface is enabled (default: `true`) |
+| `private_key` | WireGuard private key (auto-generated if empty) |
+| `listen_port` | UDP listen port |
+| `addresses` | Interface IP addresses (CIDR notation) |
+| `dns` | DNS servers for peers |
+| `mtu` | MTU value (default: `1420`) |
+| `firewall_mark` | Firewall mark |
+| `routing_table` | Routing table name |
+| `pre_up`, `post_up`, `pre_down`, `post_down` | Hook scripts |
+| `peer_def_*` | Default values for new peers |
+| `advanced_security` | AmneziaWG obfuscation parameters |

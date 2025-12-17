@@ -58,8 +58,9 @@ func (f *mockController) PingAddresses(_ context.Context, _ string) (*domain.Pin
 }
 
 type mockDB struct {
-	savedPeers map[domain.PeerIdentifier]*domain.Peer
-	iface      *domain.Interface
+	savedPeers         map[domain.PeerIdentifier]*domain.Peer
+	iface              *domain.Interface
+	existingInterfaces []domain.Interface
 }
 
 func (f *mockDB) GetInterface(ctx context.Context, id domain.InterfaceIdentifier) (*domain.Interface, error) {
@@ -78,7 +79,9 @@ func (f *mockDB) GetInterfaceAndPeers(ctx context.Context, id domain.InterfaceId
 func (f *mockDB) GetPeersStats(ctx context.Context, ids ...domain.PeerIdentifier) ([]domain.PeerStatus, error) {
 	return nil, nil
 }
-func (f *mockDB) GetAllInterfaces(ctx context.Context) ([]domain.Interface, error) { return nil, nil }
+func (f *mockDB) GetAllInterfaces(ctx context.Context) ([]domain.Interface, error) {
+	return f.existingInterfaces, nil
+}
 func (f *mockDB) GetInterfaceIps(ctx context.Context) (map[domain.InterfaceIdentifier][]domain.Cidr, error) {
 	return nil, nil
 }

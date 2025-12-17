@@ -12,6 +12,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	WireGuardModeDisabled  = "disabled"
+	WireGuardModeWireGuard = "wireguard"
+	WireGuardModeAmneziaWG = "amneziawg"
+)
+
 // Config is the main configuration struct.
 type Config struct {
 	Core struct {
@@ -20,6 +26,7 @@ type Config struct {
 		AdminUser         string `yaml:"admin_user"`
 		AdminPassword     string `yaml:"admin_password"`
 		AdminApiToken     string `yaml:"admin_api_token"` // if set, the API access is enabled automatically
+		WireGuardMode     string `yaml:"wireguard_mode"`
 
 		EditableKeys                bool `yaml:"editable_keys"`
 		CreateDefaultPeer           bool `yaml:"create_default_peer"`
@@ -70,6 +77,91 @@ type Config struct {
 	Web WebConfig `yaml:"web"`
 
 	Webhook WebhookConfig `yaml:"webhook"`
+
+	Provisioning ProvisioningConfig `yaml:"provisioning"`
+}
+
+type ProvisioningConfig struct {
+	Interfaces []ProvisioningInterface `yaml:"interfaces"`
+}
+
+type ProvisioningInterface struct {
+	Identifier  string `yaml:"identifier"`
+	DisplayName string `yaml:"display_name"`
+	Mode        string `yaml:"mode"` // server, client, any
+
+	Enabled *bool `yaml:"enabled"` // default: true
+
+	PrivateKey string   `yaml:"private_key"`
+	ListenPort int      `yaml:"listen_port"`
+	Addresses  []string `yaml:"addresses"`
+
+	Dns       []string `yaml:"dns"`
+	DnsSearch []string `yaml:"dns_search"`
+
+	Mtu          int    `yaml:"mtu"`
+	FirewallMark uint32 `yaml:"firewall_mark"`
+	RoutingTable string `yaml:"routing_table"`
+
+	PreUp    string `yaml:"pre_up"`
+	PostUp   string `yaml:"post_up"`
+	PreDown  string `yaml:"pre_down"`
+	PostDown string `yaml:"post_down"`
+
+	SaveConfig *bool  `yaml:"save_config"` // default: cfg.Advanced.ConfigStoragePath != ""
+	Notes      string `yaml:"notes"`
+
+	PeerDefNetwork             []string `yaml:"peer_def_network"`
+	PeerDefDns                 []string `yaml:"peer_def_dns"`
+	PeerDefDnsSearch           []string `yaml:"peer_def_dns_search"`
+	PeerDefEndpoint            string   `yaml:"peer_def_endpoint"`
+	PeerDefAllowedIPs          []string `yaml:"peer_def_allowed_ips"`
+	PeerDefMtu                 int      `yaml:"peer_def_mtu"`
+	PeerDefPersistentKeepalive int      `yaml:"peer_def_persistent_keepalive"`
+	PeerDefFirewallMark        uint32   `yaml:"peer_def_firewall_mark"`
+	PeerDefRoutingTable        string   `yaml:"peer_def_routing_table"`
+	PeerDefPreUp               string   `yaml:"peer_def_pre_up"`
+	PeerDefPostUp              string   `yaml:"peer_def_post_up"`
+	PeerDefPreDown             string   `yaml:"peer_def_pre_down"`
+	PeerDefPostDown            string   `yaml:"peer_def_post_down"`
+
+	AdvancedSecurity *ProvisioningInterfaceAdvancedSecurity `yaml:"advanced_security"`
+}
+
+type ProvisioningInterfaceAdvancedSecurity struct {
+	JunkPacketCount   uint16 `yaml:"jc"`
+	JunkPacketMinSize uint16 `yaml:"jmin"`
+	JunkPacketMaxSize uint16 `yaml:"jmax"`
+
+	InitPacketJunkSize        uint16 `yaml:"s1"`
+	ResponsePacketJunkSize    uint16 `yaml:"s2"`
+	CookieReplyPacketJunkSize uint16 `yaml:"s3"`
+	TransportPacketJunkSize   uint16 `yaml:"s4"`
+
+	InitPacketMagicHeader      string `yaml:"h1"`
+	ResponsePacketMagicHeader  string `yaml:"h2"`
+	UnderloadPacketMagicHeader string `yaml:"h3"`
+	TransportPacketMagicHeader string `yaml:"h4"`
+
+	FirstSpecialJunkPacket  *string `yaml:"i1"`
+	SecondSpecialJunkPacket *string `yaml:"i2"`
+	ThirdSpecialJunkPacket  *string `yaml:"i3"`
+	FourthSpecialJunkPacket *string `yaml:"i4"`
+	FifthSpecialJunkPacket  *string `yaml:"i5"`
+}
+
+func (c *Config) Sanitize() error {
+	c.Core.WireGuardMode = strings.TrimSpace(strings.ToLower(c.Core.WireGuardMode))
+	if c.Core.WireGuardMode == "" {
+		c.Core.WireGuardMode = WireGuardModeDisabled
+	}
+	switch c.Core.WireGuardMode {
+	case WireGuardModeDisabled, WireGuardModeWireGuard, WireGuardModeAmneziaWG:
+		// ok
+	default:
+		return fmt.Errorf("invalid core.wireguard_mode %q", c.Core.WireGuardMode)
+	}
+	return nil
 }
 
 // LogStartupValues logs the startup values of the configuration in debug level
@@ -77,6 +169,7 @@ func (c *Config) LogStartupValues() {
 	slog.Info("Configuration loaded!", "logLevel", c.Advanced.LogLevel)
 
 	slog.Debug("Config Features",
+		"wireguardMode", c.Core.WireGuardMode,
 		"editableKeys", c.Core.EditableKeys,
 		"createDefaultPeerOnCreation", c.Core.CreateDefaultPeerOnCreation,
 		"reEnablePeerAfterUserEnable", c.Core.ReEnablePeerAfterUserEnable,
@@ -120,6 +213,7 @@ func defaultConfig() *Config {
 	cfg.Core.AdminUser = getEnvStr("WG_PORTAL_CORE_ADMIN_USER", "admin@wgportal.local")
 	cfg.Core.AdminPassword = getEnvStr("WG_PORTAL_CORE_ADMIN_PASSWORD", "wgportal-default")
 	cfg.Core.AdminApiToken = getEnvStr("WG_PORTAL_CORE_ADMIN_API_TOKEN", "") // by default, the API access is disabled
+	cfg.Core.WireGuardMode = getEnvStr("WG_PORTAL_CORE_WIREGUARD_MODE", WireGuardModeDisabled)
 	cfg.Core.ImportExisting = getEnvBool("WG_PORTAL_CORE_IMPORT_EXISTING", true)
 	cfg.Core.RestoreState = getEnvBool("WG_PORTAL_CORE_RESTORE_STATE", true)
 	cfg.Core.CreateDefaultPeer = getEnvBool("WG_PORTAL_CORE_CREATE_DEFAULT_PEER", false)
@@ -231,6 +325,9 @@ func GetConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to load config from yaml: %w", err)
 	}
 
+	if err := cfg.Sanitize(); err != nil {
+		return nil, err
+	}
 	cfg.Web.Sanitize()
 	err := cfg.Backend.Validate()
 	if err != nil {

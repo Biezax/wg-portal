@@ -10,10 +10,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Biezax/wgctrl/wgtypes"
+
 	"github.com/biezax/wg-portal/internal/app"
 	"github.com/biezax/wg-portal/internal/app/audit"
 	"github.com/biezax/wg-portal/internal/config"
 	"github.com/biezax/wg-portal/internal/domain"
+)
+
+const (
+	DefaultMTU                 = 1420
+	DefaultPersistentKeepalive = 16
 )
 
 // GetInterfaceAndPeers returns the interface and all peers for the given interface identifier.
@@ -95,6 +102,10 @@ func (m Manager) GetUserInterfaces(ctx context.Context, _ domain.UserIdentifier)
 func (m Manager) ImportNewInterfaces(ctx context.Context, filter ...domain.InterfaceIdentifier) (int, error) {
 	if err := domain.ValidateAdminAccessRights(ctx); err != nil {
 		return 0, err
+	}
+	if m.cfg.Core.WireGuardMode == config.WireGuardModeDisabled {
+		slog.Debug("skipping interface import - host management disabled")
+		return 0, nil
 	}
 
 	var existingInterfaceIds []domain.InterfaceIdentifier
@@ -195,6 +206,10 @@ func (m Manager) RestoreInterfaceState(
 ) error {
 	if err := domain.ValidateAdminAccessRights(ctx); err != nil {
 		return err
+	}
+	if m.cfg.Core.WireGuardMode == config.WireGuardModeDisabled {
+		slog.Debug("skipping interface state restore - host management disabled")
+		return nil
 	}
 
 	interfaces, err := m.db.GetAllInterfaces(ctx)
@@ -312,6 +327,238 @@ func (m Manager) RestoreInterfaceState(
 	}
 
 	return nil
+}
+
+// BootstrapInterfacesFromConfig seeds the database with interfaces from config.Provisioning
+// only if the database currently contains no interfaces.
+//
+// It never applies changes to the host network stack; applying is handled by RestoreInterfaceState.
+func (m Manager) BootstrapInterfacesFromConfig(ctx context.Context) (bool, error) {
+	if err := domain.ValidateAdminAccessRights(ctx); err != nil {
+		return false, err
+	}
+
+	if len(m.cfg.Provisioning.Interfaces) == 0 {
+		return false, nil
+	}
+
+	existingInterfaces, err := m.db.GetAllInterfaces(ctx)
+	if err != nil {
+		return false, err
+	}
+	if len(existingInterfaces) > 0 {
+		slog.Debug("provisioning.interfaces ignored - interfaces already exist", "count", len(existingInterfaces))
+		return false, nil
+	}
+
+	seen := make(map[string]struct{}, len(m.cfg.Provisioning.Interfaces))
+	now := time.Now()
+	for _, ifaceCfg := range m.cfg.Provisioning.Interfaces {
+		id := strings.TrimSpace(ifaceCfg.Identifier)
+		if id == "" {
+			return false, fmt.Errorf("provisioning.interfaces.identifier must not be empty")
+		}
+		if _, ok := seen[id]; ok {
+			return false, fmt.Errorf("provisioning.interfaces.identifier %q is not unique", id)
+		}
+		seen[id] = struct{}{}
+
+		mode := strings.ToLower(strings.TrimSpace(ifaceCfg.Mode))
+		if mode == "" {
+			mode = string(domain.InterfaceTypeServer)
+		}
+		var ifaceMode domain.InterfaceType
+		switch mode {
+		case string(domain.InterfaceTypeServer):
+			ifaceMode = domain.InterfaceTypeServer
+		case string(domain.InterfaceTypeClient):
+			ifaceMode = domain.InterfaceTypeClient
+		case string(domain.InterfaceTypeAny):
+			ifaceMode = domain.InterfaceTypeAny
+		default:
+			return false, fmt.Errorf("provisioning.interfaces[%s].mode must be one of: server, client, any", id)
+		}
+
+		enabled := true
+		if ifaceCfg.Enabled != nil {
+			enabled = *ifaceCfg.Enabled
+		}
+
+		kp := domain.KeyPair{
+			PrivateKey: strings.TrimSpace(ifaceCfg.PrivateKey),
+		}
+		if kp.PrivateKey == "" {
+			newKp, err := domain.NewFreshKeypair()
+			if err != nil {
+				return false, fmt.Errorf("provisioning.interfaces[%s] failed to generate keys: %w", id, err)
+			}
+			kp = newKp
+		} else {
+			kp.PublicKey = domain.PublicKeyFromPrivateKey(kp.PrivateKey)
+			if kp.PublicKey == "" {
+				return false, fmt.Errorf("provisioning.interfaces[%s] has invalid private_key", id)
+			}
+		}
+
+		listenPort := ifaceCfg.ListenPort
+		if listenPort <= 0 {
+			listenPort = m.cfg.Advanced.StartListenPort
+		}
+
+		var addresses []domain.Cidr
+		if len(ifaceCfg.Addresses) > 0 {
+			parsed, err := domain.CidrsFromArray(ifaceCfg.Addresses)
+			if err != nil {
+				return false, fmt.Errorf("provisioning.interfaces[%s] invalid addresses: %w", id, err)
+			}
+			addresses = parsed
+		} else {
+			ipV4, err := domain.CidrFromString(m.cfg.Advanced.StartCidrV4)
+			if err != nil {
+				return false, fmt.Errorf("provisioning.interfaces[%s] failed to parse advanced.start_cidr_v4: %w", id, err)
+			}
+			ipV4 = ipV4.FirstAddr()
+			addresses = append(addresses, ipV4)
+			if m.cfg.Advanced.UseIpV6 {
+				ipV6, err := domain.CidrFromString(m.cfg.Advanced.StartCidrV6)
+				if err != nil {
+					return false, fmt.Errorf("provisioning.interfaces[%s] failed to parse advanced.start_cidr_v6: %w", id, err)
+				}
+				ipV6 = ipV6.FirstAddr()
+				addresses = append(addresses, ipV6)
+			}
+		}
+
+		networks := make([]domain.Cidr, 0, len(addresses))
+		for _, addr := range addresses {
+			networks = append(networks, addr.NetworkAddr())
+		}
+
+		peerDefNetworkStr := domain.CidrsToString(networks)
+		if len(ifaceCfg.PeerDefNetwork) > 0 {
+			peerNets, err := domain.CidrsFromArray(ifaceCfg.PeerDefNetwork)
+			if err != nil {
+				return false, fmt.Errorf("provisioning.interfaces[%s] invalid peer_def_network: %w", id, err)
+			}
+			peerDefNetworkStr = domain.CidrsToString(peerNets)
+		}
+
+		peerDefAllowedIPsStr := domain.CidrsToString(networks)
+		if len(ifaceCfg.PeerDefAllowedIPs) > 0 {
+			allowed, err := domain.CidrsFromArray(ifaceCfg.PeerDefAllowedIPs)
+			if err != nil {
+				return false, fmt.Errorf("provisioning.interfaces[%s] invalid peer_def_allowed_ips: %w", id, err)
+			}
+			peerDefAllowedIPsStr = domain.CidrsToString(allowed)
+		}
+
+		saveConfig := m.cfg.Advanced.ConfigStoragePath != ""
+		if ifaceCfg.SaveConfig != nil {
+			saveConfig = *ifaceCfg.SaveConfig
+		}
+
+		mtu := ifaceCfg.Mtu
+		if mtu == 0 {
+			mtu = DefaultMTU
+		}
+		peerDefMtu := ifaceCfg.PeerDefMtu
+		if peerDefMtu == 0 {
+			peerDefMtu = DefaultMTU
+		}
+		peerDefKeepalive := ifaceCfg.PeerDefPersistentKeepalive
+		if peerDefKeepalive == 0 {
+			peerDefKeepalive = DefaultPersistentKeepalive
+		}
+
+		var advSec *domain.AdvancedSecurity
+		if ifaceCfg.AdvancedSecurity != nil {
+			s := ifaceCfg.AdvancedSecurity
+			advSec = &domain.AdvancedSecurity{
+				JunkPacketCount:            s.JunkPacketCount,
+				JunkPacketMinSize:          s.JunkPacketMinSize,
+				JunkPacketMaxSize:          s.JunkPacketMaxSize,
+				InitPacketJunkSize:         s.InitPacketJunkSize,
+				ResponsePacketJunkSize:     s.ResponsePacketJunkSize,
+				CookieReplyPacketJunkSize:  s.CookieReplyPacketJunkSize,
+				TransportPacketJunkSize:    s.TransportPacketJunkSize,
+				InitPacketMagicHeader:      s.InitPacketMagicHeader,
+				ResponsePacketMagicHeader:  s.ResponsePacketMagicHeader,
+				UnderloadPacketMagicHeader: s.UnderloadPacketMagicHeader,
+				TransportPacketMagicHeader: s.TransportPacketMagicHeader,
+				FirstSpecialJunkPacket:     s.FirstSpecialJunkPacket,
+				SecondSpecialJunkPacket:    s.SecondSpecialJunkPacket,
+				ThirdSpecialJunkPacket:     s.ThirdSpecialJunkPacket,
+				FourthSpecialJunkPacket:    s.FourthSpecialJunkPacket,
+				FifthSpecialJunkPacket:     s.FifthSpecialJunkPacket,
+			}
+		}
+
+		displayName := strings.TrimSpace(ifaceCfg.DisplayName)
+		if displayName == "" {
+			displayName = id
+		}
+
+		dnsStr := strings.Join(ifaceCfg.Dns, ",")
+		dnsSearchStr := strings.Join(ifaceCfg.DnsSearch, ",")
+		peerDefDnsStr := strings.Join(ifaceCfg.PeerDefDns, ",")
+		peerDefDnsSearchStr := strings.Join(ifaceCfg.PeerDefDnsSearch, ",")
+
+		bootstrapIface := &domain.Interface{
+			Identifier:                 domain.InterfaceIdentifier(id),
+			KeyPair:                    kp,
+			ListenPort:                 listenPort,
+			Addresses:                  addresses,
+			DnsStr:                     dnsStr,
+			DnsSearchStr:               dnsSearchStr,
+			Mtu:                        mtu,
+			FirewallMark:               ifaceCfg.FirewallMark,
+			RoutingTable:               ifaceCfg.RoutingTable,
+			PreUp:                      ifaceCfg.PreUp,
+			PostUp:                     ifaceCfg.PostUp,
+			PreDown:                    ifaceCfg.PreDown,
+			PostDown:                   ifaceCfg.PostDown,
+			SaveConfig:                 saveConfig,
+			DisplayName:                displayName,
+			Type:                       ifaceMode,
+			Backend:                    config.LocalBackendName,
+			DriverType:                 "",
+			Disabled:                   nil,
+			DisabledReason:             "",
+			PeerDefNetworkStr:          peerDefNetworkStr,
+			PeerDefDnsStr:              peerDefDnsStr,
+			PeerDefDnsSearchStr:        peerDefDnsSearchStr,
+			PeerDefEndpoint:            ifaceCfg.PeerDefEndpoint,
+			PeerDefAllowedIPsStr:       peerDefAllowedIPsStr,
+			PeerDefMtu:                 peerDefMtu,
+			PeerDefPersistentKeepalive: peerDefKeepalive,
+			PeerDefFirewallMark:        ifaceCfg.PeerDefFirewallMark,
+			PeerDefRoutingTable:        ifaceCfg.PeerDefRoutingTable,
+			PeerDefPreUp:               ifaceCfg.PeerDefPreUp,
+			PeerDefPostUp:              ifaceCfg.PeerDefPostUp,
+			PeerDefPreDown:             ifaceCfg.PeerDefPreDown,
+			PeerDefPostDown:            ifaceCfg.PeerDefPostDown,
+			AdvancedSecurity:           advSec,
+		}
+		if !enabled {
+			bootstrapIface.Disabled = &now
+		}
+
+		if err := bootstrapIface.Validate(); err != nil {
+			return false, fmt.Errorf("provisioning.interfaces[%s] interface validation failed: %w", id, err)
+		}
+
+		err := m.db.SaveInterface(ctx, bootstrapIface.Identifier, func(in *domain.Interface) (*domain.Interface, error) {
+			baseModel := in.BaseModel
+			*in = *bootstrapIface
+			in.BaseModel = baseModel
+			return in, nil
+		})
+		if err != nil {
+			return false, fmt.Errorf("failed to bootstrap interface %s: %w", id, err)
+		}
+	}
+
+	return true, nil
 }
 
 // PrepareInterface generates a new interface with fresh keys, ip addresses and a listen port.
@@ -454,6 +701,8 @@ func (m Manager) DeleteInterface(ctx context.Context, id domain.InterfaceIdentif
 		return err
 	}
 
+	applyToHost := m.cfg.Core.WireGuardMode != config.WireGuardModeDisabled
+
 	existingInterface, existingPeers, err := m.db.GetInterfaceAndPeers(ctx, id)
 	if err != nil {
 		return fmt.Errorf("unable to find interface %s: %w", id, err)
@@ -463,47 +712,55 @@ func (m Manager) DeleteInterface(ctx context.Context, id domain.InterfaceIdentif
 		return fmt.Errorf("deletion not allowed: %w", err)
 	}
 
-	m.bus.Publish(app.TopicRouteRemove, domain.RoutingTableInfo{
-		Interface:  *existingInterface,
-		AllowedIps: existingInterface.GetAllowedIPs(existingPeers),
-		FwMark:     existingInterface.FirewallMark,
-		Table:      existingInterface.GetRoutingTable(),
-		TableStr:   existingInterface.RoutingTable,
-		IsDeleted:  true,
-	})
+	if applyToHost {
+		m.bus.Publish(app.TopicRouteRemove, domain.RoutingTableInfo{
+			Interface:  *existingInterface,
+			AllowedIps: existingInterface.GetAllowedIPs(existingPeers),
+			FwMark:     existingInterface.FirewallMark,
+			Table:      existingInterface.GetRoutingTable(),
+			TableStr:   existingInterface.RoutingTable,
+			IsDeleted:  true,
+		})
+	}
 
 	now := time.Now()
 	existingInterface.Disabled = &now // simulate a disabled interface
 	existingInterface.DisabledReason = domain.DisabledReasonDeleted
 
-	if err := m.handleInterfacePreSaveHooks(ctx, existingInterface, !existingInterface.IsDisabled(),
-		false); err != nil {
-		return fmt.Errorf("pre-delete hooks failed: %w", err)
-	}
+	if applyToHost {
+		if err := m.handleInterfacePreSaveHooks(ctx, existingInterface, !existingInterface.IsDisabled(),
+			false); err != nil {
+			return fmt.Errorf("pre-delete hooks failed: %w", err)
+		}
 
-	if err := m.handleInterfacePreSaveActions(ctx, existingInterface); err != nil {
-		return fmt.Errorf("pre-delete actions failed: %w", err)
+		if err := m.handleInterfacePreSaveActions(ctx, existingInterface); err != nil {
+			return fmt.Errorf("pre-delete actions failed: %w", err)
+		}
 	}
 
 	if err := m.deleteInterfacePeers(ctx, existingInterface, existingPeers); err != nil {
 		return fmt.Errorf("peer deletion failure: %w", err)
 	}
 
-	if err := m.wg.GetController(*existingInterface).DeleteInterface(ctx, id); err != nil {
-		return fmt.Errorf("wireguard deletion failure: %w", err)
+	if applyToHost {
+		if err := m.wg.GetController(*existingInterface).DeleteInterface(ctx, id); err != nil {
+			return fmt.Errorf("wireguard deletion failure: %w", err)
+		}
 	}
 
 	if err := m.db.DeleteInterface(ctx, id); err != nil {
 		return fmt.Errorf("deletion failure: %w", err)
 	}
 
-	if err := m.handleInterfacePostSaveHooks(
-		ctx,
-		existingInterface,
-		!existingInterface.IsDisabled(),
-		false,
-	); err != nil {
-		return fmt.Errorf("post-delete hooks failed: %w", err)
+	if applyToHost {
+		if err := m.handleInterfacePostSaveHooks(
+			ctx,
+			existingInterface,
+			!existingInterface.IsDisabled(),
+			false,
+		); err != nil {
+			return fmt.Errorf("post-delete hooks failed: %w", err)
+		}
 	}
 
 	m.bus.Publish(app.TopicInterfaceDeleted, *existingInterface)
@@ -521,6 +778,8 @@ func (m Manager) saveInterface(ctx context.Context, iface *domain.Interface) (
 		return nil, fmt.Errorf("interface validation failed: %w", err)
 	}
 
+	applyToHost := m.cfg.Core.WireGuardMode != config.WireGuardModeDisabled
+
 	oldEnabled, newEnabled, routeTableChanged := false, !iface.IsDisabled(), false // if the interface did not exist, we assume it was not enabled
 	oldInterface, err := m.db.GetInterface(ctx, iface.Identifier)
 	if err == nil {
@@ -530,24 +789,43 @@ func (m Manager) saveInterface(ctx context.Context, iface *domain.Interface) (
 		}
 	}
 
-	if err := m.handleInterfacePreSaveHooks(ctx, iface, oldEnabled, newEnabled); err != nil {
-		return nil, fmt.Errorf("pre-save hooks failed: %w", err)
-	}
+	if applyToHost {
+		switch m.cfg.Core.WireGuardMode {
+		case config.WireGuardModeWireGuard:
+			iface.ClientType = wgtypes.NativeClient
+		case config.WireGuardModeAmneziaWG:
+			iface.ClientType = wgtypes.AmneziaClient
+		}
 
-	if err := m.handleInterfacePreSaveActions(ctx, iface); err != nil {
-		return nil, fmt.Errorf("pre-save actions failed: %w", err)
+		if err := m.handleInterfacePreSaveHooks(ctx, iface, oldEnabled, newEnabled); err != nil {
+			return nil, fmt.Errorf("pre-save hooks failed: %w", err)
+		}
+
+		if err := m.handleInterfacePreSaveActions(ctx, iface); err != nil {
+			return nil, fmt.Errorf("pre-save actions failed: %w", err)
+		}
 	}
 
 	err = m.db.SaveInterface(ctx, iface.Identifier, func(i *domain.Interface) (*domain.Interface, error) {
 		iface.CopyCalculatedAttributes(i)
 
-		err := m.wg.GetController(*iface).SaveInterface(ctx, iface.Identifier,
-			func(pi *domain.PhysicalInterface) (*domain.PhysicalInterface, error) {
-				domain.MergeToPhysicalInterface(pi, iface)
-				return pi, nil
-			})
-		if err != nil {
-			return nil, fmt.Errorf("failed to save physical interface %s: %w", iface.Identifier, err)
+		if applyToHost {
+			applyIface := iface
+			if m.cfg.Core.WireGuardMode == config.WireGuardModeWireGuard {
+				// Do not apply AmneziaWG advanced security settings when running in WireGuard mode.
+				tmp := *iface
+				tmp.AdvancedSecurity = nil
+				applyIface = &tmp
+			}
+
+			err := m.wg.GetController(*iface).SaveInterface(ctx, iface.Identifier,
+				func(pi *domain.PhysicalInterface) (*domain.PhysicalInterface, error) {
+					domain.MergeToPhysicalInterface(pi, applyIface)
+					return pi, nil
+				})
+			if err != nil {
+				return nil, fmt.Errorf("failed to save physical interface %s: %w", iface.Identifier, err)
+			}
 		}
 
 		return iface, nil
@@ -580,58 +858,62 @@ func (m Manager) saveInterface(ctx context.Context, iface *domain.Interface) (
 		}
 	}
 
-	if iface.IsDisabled() {
-		m.bus.Publish(app.TopicRouteRemove, domain.RoutingTableInfo{
-			Interface:  *iface,
-			AllowedIps: iface.GetAllowedIPs(peers),
-			FwMark:     iface.FirewallMark,
-			Table:      iface.GetRoutingTable(),
-			TableStr:   iface.RoutingTable,
-		})
-	} else {
-		m.bus.Publish(app.TopicRouteUpdate, domain.RoutingTableInfo{
-			Interface:  *iface,
-			AllowedIps: iface.GetAllowedIPs(peers),
-			FwMark:     iface.FirewallMark,
-			Table:      iface.GetRoutingTable(),
-			TableStr:   iface.RoutingTable,
-		})
-		// if the route table changed, ensure that the old entries are remove
-		if routeTableChanged {
+	if applyToHost {
+		if iface.IsDisabled() {
 			m.bus.Publish(app.TopicRouteRemove, domain.RoutingTableInfo{
-				Interface:  *oldInterface,
-				AllowedIps: oldInterface.GetAllowedIPs(peers),
-				FwMark:     oldInterface.FirewallMark,
-				Table:      oldInterface.GetRoutingTable(),
-				TableStr:   oldInterface.RoutingTable,
-				IsDeleted:  true, // mark the old entries as deleted
+				Interface:  *iface,
+				AllowedIps: iface.GetAllowedIPs(peers),
+				FwMark:     iface.FirewallMark,
+				Table:      iface.GetRoutingTable(),
+				TableStr:   iface.RoutingTable,
 			})
-		}
-	}
-
-	if err := m.handleInterfacePostSaveHooks(ctx, iface, oldEnabled, newEnabled); err != nil {
-		return nil, fmt.Errorf("post-save hooks failed: %w", err)
-	}
-
-	// If the interface has just been enabled, restore its peers on the physical controller
-	if !oldEnabled && newEnabled && iface.Backend == config.LocalBackendName {
-		peers, err := m.db.GetInterfacePeers(ctx, iface.Identifier)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load peers for interface %s: %w", iface.Identifier, err)
-		}
-		for _, peer := range peers {
-			saveErr := m.wg.GetController(*iface).SavePeer(ctx, iface.Identifier, peer.Identifier,
-				func(pp *domain.PhysicalPeer) (*domain.PhysicalPeer, error) {
-					domain.MergeToPhysicalPeer(pp, &peer)
-					return pp, nil
+		} else {
+			m.bus.Publish(app.TopicRouteUpdate, domain.RoutingTableInfo{
+				Interface:  *iface,
+				AllowedIps: iface.GetAllowedIPs(peers),
+				FwMark:     iface.FirewallMark,
+				Table:      iface.GetRoutingTable(),
+				TableStr:   iface.RoutingTable,
+			})
+			// if the route table changed, ensure that the old entries are remove
+			if routeTableChanged {
+				m.bus.Publish(app.TopicRouteRemove, domain.RoutingTableInfo{
+					Interface:  *oldInterface,
+					AllowedIps: oldInterface.GetAllowedIPs(peers),
+					FwMark:     oldInterface.FirewallMark,
+					Table:      oldInterface.GetRoutingTable(),
+					TableStr:   oldInterface.RoutingTable,
+					IsDeleted:  true, // mark the old entries as deleted
 				})
-			if saveErr != nil {
-				return nil, fmt.Errorf("failed to restore peer %s for interface %s: %w", peer.Identifier,
-					iface.Identifier, saveErr)
 			}
 		}
-		// notify that peers for this interface have changed so config/routes can be updated
-		m.bus.Publish(app.TopicPeerInterfaceUpdated, iface.Identifier)
+	}
+
+	if applyToHost {
+		if err := m.handleInterfacePostSaveHooks(ctx, iface, oldEnabled, newEnabled); err != nil {
+			return nil, fmt.Errorf("post-save hooks failed: %w", err)
+		}
+
+		// If the interface has just been enabled, restore its peers on the physical controller
+		if !oldEnabled && newEnabled && iface.Backend == config.LocalBackendName {
+			peers, err := m.db.GetInterfacePeers(ctx, iface.Identifier)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load peers for interface %s: %w", iface.Identifier, err)
+			}
+			for _, peer := range peers {
+				saveErr := m.wg.GetController(*iface).SavePeer(ctx, iface.Identifier, peer.Identifier,
+					func(pp *domain.PhysicalPeer) (*domain.PhysicalPeer, error) {
+						domain.MergeToPhysicalPeer(pp, &peer)
+						return pp, nil
+					})
+				if saveErr != nil {
+					return nil, fmt.Errorf("failed to restore peer %s for interface %s: %w", peer.Identifier,
+						iface.Identifier, saveErr)
+				}
+			}
+			// notify that peers for this interface have changed so config/routes can be updated
+			m.bus.Publish(app.TopicPeerInterfaceUpdated, iface.Identifier)
+		}
 	}
 
 	m.bus.Publish(app.TopicAuditInterfaceChanged, domain.AuditEventWrapper[audit.InterfaceEvent]{
@@ -1027,13 +1309,16 @@ func (m Manager) importPeer(ctx context.Context, in *domain.Interface, p *domain
 }
 
 func (m Manager) deleteInterfacePeers(ctx context.Context, iface *domain.Interface, allPeers []domain.Peer) error {
+	applyToHost := m.cfg.Core.WireGuardMode != config.WireGuardModeDisabled
 	for _, peer := range allPeers {
-		err := m.wg.GetController(*iface).DeletePeer(ctx, iface.Identifier, peer.Identifier)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("wireguard peer deletion failure for %s: %w", peer.Identifier, err)
+		if applyToHost {
+			err := m.wg.GetController(*iface).DeletePeer(ctx, iface.Identifier, peer.Identifier)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("wireguard peer deletion failure for %s: %w", peer.Identifier, err)
+			}
 		}
 
-		err = m.db.DeletePeer(ctx, peer.Identifier)
+		err := m.db.DeletePeer(ctx, peer.Identifier)
 		if err != nil {
 			return fmt.Errorf("peer deletion failure for %s: %w", peer.Identifier, err)
 		}

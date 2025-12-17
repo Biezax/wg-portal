@@ -72,21 +72,49 @@ type LocalController struct {
 // NewLocalController creates a new local controller instance.
 // This repository is used to interact with the WireGuard kernel or userspace module.
 func NewLocalController(cfg *config.Config) (*LocalController, error) {
-	repoAdapter, err := adapters.NewWireGuardRepository()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create wgctrl client: %w", err)
-	}
-
 	nl := &lowlevel.NetlinkManager{}
 
 	repo := &LocalController{
 		cfg: cfg,
 
-		Clients: repoAdapter.Clients,
+		Clients: nil,
 		nl:      nl,
 
 		shellCmd:              "bash",                            // we only support bash at the moment
 		resolvConfIfacePrefix: cfg.Backend.LocalResolvconfPrefix, // WireGuard interfaces have a tun. prefix in resolvconf
+	}
+
+	if cfg.Core.WireGuardMode == config.WireGuardModeDisabled {
+		return repo, nil
+	}
+
+	repoAdapter, err := adapters.NewWireGuardRepository()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create wgctrl client: %w", err)
+	}
+
+	switch cfg.Core.WireGuardMode {
+	case config.WireGuardModeWireGuard:
+		for _, client := range repoAdapter.Clients {
+			if client.Type() == wgtypes.NativeClient {
+				repo.Clients = append(repo.Clients, client)
+			}
+		}
+		if len(repo.Clients) == 0 {
+			return nil, fmt.Errorf("no compatible wgctrl client available for mode %s", cfg.Core.WireGuardMode)
+		}
+	case config.WireGuardModeAmneziaWG:
+		for _, client := range repoAdapter.Clients {
+			if client.Type() == wgtypes.AmneziaClient {
+				repo.Clients = append(repo.Clients, client)
+			}
+		}
+		if len(repo.Clients) == 0 {
+			return nil, fmt.Errorf("no compatible wgctrl client available for mode %s", cfg.Core.WireGuardMode)
+		}
+	default:
+		// Should be prevented by config validation.
+		repo.Clients = repoAdapter.Clients
 	}
 
 	return repo, nil
