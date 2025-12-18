@@ -412,13 +412,14 @@ func (c LocalController) ensureInterfaceExists(clientType wgtypes.ClientType, id
 	}
 
 	// Wait for kernel to register interface in generic netlink family
-	for i := 0; i < 50; i++ {
-		if _, err := client.Device(string(id)); err == nil {
+	// Use ConfigureDevice with empty config to verify SET works, not just GET
+	for i := 0; i < 100; i++ {
+		if err := client.ConfigureDevice(string(id), wgtypes.Config{}); err == nil {
 			return nil
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
-	return fmt.Errorf("timeout waiting for interface %s to become available", id)
+	return fmt.Errorf("timeout waiting for interface %s to become configurable", id)
 }
 
 func (c LocalController) getInterface(id domain.InterfaceIdentifier) (*domain.PhysicalInterface, error) {
