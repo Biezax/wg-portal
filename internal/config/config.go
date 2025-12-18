@@ -1,8 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -17,6 +20,9 @@ const (
 	WireGuardModeWireGuard = "wireguard"
 	WireGuardModeAmneziaWG = "amneziawg"
 )
+
+// maxAwgStringLen matches wgctrl ioctl buffer limit for special junk packets
+const maxAwgStringLen = 5 * 1024
 
 // Config is the main configuration struct.
 type Config struct {
@@ -161,6 +167,177 @@ func (c *Config) Sanitize() error {
 	default:
 		return fmt.Errorf("invalid core.wireguard_mode %q", c.Core.WireGuardMode)
 	}
+
+	if err := sanitizeProvisioningInterfaces(c); err != nil {
+		return err
+	}
+	return nil
+}
+
+func sanitizeProvisioningInterfaces(c *Config) error {
+	if len(c.Provisioning.Interfaces) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(c.Provisioning.Interfaces))
+	for idx := range c.Provisioning.Interfaces {
+		iface := &c.Provisioning.Interfaces[idx]
+
+		id := strings.TrimSpace(iface.Identifier)
+		if id == "" {
+			return fmt.Errorf("provisioning.interfaces[%d].identifier must not be empty", idx)
+		}
+		iface.Identifier = id
+
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("provisioning.interfaces.identifier %q is not unique", id)
+		}
+		seen[id] = struct{}{}
+
+		mode := strings.ToLower(strings.TrimSpace(iface.Mode))
+		if mode != "" {
+			switch mode {
+			case "server", "client", "any":
+				iface.Mode = mode
+			default:
+				return fmt.Errorf("provisioning.interfaces[%s].mode must be one of: server, client, any", id)
+			}
+		}
+
+		if iface.ListenPort != 0 && (iface.ListenPort < 1 || iface.ListenPort > 65535) {
+			return fmt.Errorf("provisioning.interfaces[%s].listen_port must be 0 or between 1 and 65535", id)
+		}
+
+		if iface.Mtu < 0 {
+			return fmt.Errorf("provisioning.interfaces[%s].mtu must be >= 0", id)
+		}
+		if iface.PeerDefMtu < 0 {
+			return fmt.Errorf("provisioning.interfaces[%s].peer_def_mtu must be >= 0", id)
+		}
+
+		if len(iface.Addresses) > 0 {
+			if err := validateCidrArray(fmt.Sprintf("provisioning.interfaces[%s].addresses", id), iface.Addresses); err != nil {
+				return err
+			}
+		}
+		if len(iface.PeerDefAllowedIPs) > 0 {
+			if err := validateCidrArray(fmt.Sprintf("provisioning.interfaces[%s].peer_def_allowed_ips", id), iface.PeerDefAllowedIPs); err != nil {
+				return err
+			}
+		}
+		if len(iface.PeerDefNetwork) > 0 {
+			if err := validateCidrArray(fmt.Sprintf("provisioning.interfaces[%s].peer_def_network", id), iface.PeerDefNetwork); err != nil {
+				return err
+			}
+		}
+
+		if iface.AdvancedSecurity != nil {
+			if c.Core.WireGuardMode != WireGuardModeAmneziaWG {
+				return fmt.Errorf("provisioning.interfaces[%s].advanced_security is only supported with core.wireguard_mode %q", id, WireGuardModeAmneziaWG)
+			}
+			if err := validateAdvancedSecurity(fmt.Sprintf("provisioning.interfaces[%s].advanced_security", id), iface.AdvancedSecurity); err != nil {
+				return err
+			}
+		}
+
+		// non-fatal hints for common misconfigurations
+		if len(iface.Dns) > 0 && len(iface.PeerDefDns) == 0 {
+			slog.Warn("provisioning: interface dns set but peer_def_dns is empty; peers will not inherit dns",
+				"interface", id)
+		}
+		if iface.Mtu != 0 && iface.PeerDefMtu == 0 {
+			slog.Warn("provisioning: interface mtu set but peer_def_mtu is not set; peers will use default mtu",
+				"interface", id,
+				"mtu", iface.Mtu)
+		}
+	}
+
+	return nil
+}
+
+func validateCidrArray(field string, cidrs []string) error {
+	for i, raw := range cidrs {
+		val := strings.TrimSpace(raw)
+		if val == "" {
+			return fmt.Errorf("%s[%d] must not be empty", field, i)
+		}
+		if _, err := netip.ParsePrefix(val); err != nil {
+			return fmt.Errorf("%s[%d] invalid CIDR %q: %w", field, i, raw, err)
+		}
+	}
+	return nil
+}
+
+func validateAdvancedSecurity(field string, s *ProvisioningInterfaceAdvancedSecurity) error {
+	// junk packets: require coherent range if enabled
+	if s.JunkPacketCount > 0 {
+		if s.JunkPacketMinSize == 0 || s.JunkPacketMaxSize == 0 {
+			return fmt.Errorf("%s: jmin and jmax must be > 0 when jc > 0", field)
+		}
+		if s.JunkPacketMinSize > s.JunkPacketMaxSize {
+			return fmt.Errorf("%s: jmin must be <= jmax", field)
+		}
+	} else if s.JunkPacketMinSize != 0 || s.JunkPacketMaxSize != 0 {
+		slog.Warn("advanced_security: jmin/jmax set but jc=0; junk packets disabled", "field", field)
+	}
+
+	// headers: validate as uint32 (decimal or 0x...) when present
+	if err := validateAwgUint32IfSet(field+".init_packet_magic_header (h1)", s.InitPacketMagicHeader); err != nil {
+		return err
+	}
+	if err := validateAwgUint32IfSet(field+".response_packet_magic_header (h2)", s.ResponsePacketMagicHeader); err != nil {
+		return err
+	}
+	if err := validateAwgUint32IfSet(field+".underload_packet_magic_header (h3)", s.UnderloadPacketMagicHeader); err != nil {
+		return err
+	}
+	if err := validateAwgUint32IfSet(field+".transport_packet_magic_header (h4)", s.TransportPacketMagicHeader); err != nil {
+		return err
+	}
+
+	// special junk packets: non-empty and within wgctrl limits when present
+	if err := validateAwgStringPtr(field+".first_special_junk_packet (i1)", &s.FirstSpecialJunkPacket); err != nil {
+		return err
+	}
+	if err := validateAwgStringPtr(field+".second_special_junk_packet (i2)", &s.SecondSpecialJunkPacket); err != nil {
+		return err
+	}
+	if err := validateAwgStringPtr(field+".third_special_junk_packet (i3)", &s.ThirdSpecialJunkPacket); err != nil {
+		return err
+	}
+	if err := validateAwgStringPtr(field+".fourth_special_junk_packet (i4)", &s.FourthSpecialJunkPacket); err != nil {
+		return err
+	}
+	if err := validateAwgStringPtr(field+".fifth_special_junk_packet (i5)", &s.FifthSpecialJunkPacket); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateAwgUint32IfSet(field, raw string) error {
+	val := strings.TrimSpace(raw)
+	if val == "" {
+		return nil
+	}
+	if _, err := strconv.ParseUint(val, 0, 32); err != nil {
+		return fmt.Errorf("%s must be a uint32 (decimal or 0x...): %w", field, err)
+	}
+	return nil
+}
+
+func validateAwgStringPtr(field string, raw **string) error {
+	if raw == nil || *raw == nil {
+		return nil
+	}
+	val := strings.TrimSpace(**raw)
+	if val == "" {
+		return fmt.Errorf("%s must not be empty", field)
+	}
+	if len(val) >= maxAwgStringLen {
+		return fmt.Errorf("%s must be shorter than %d bytes", field, maxAwgStringLen)
+	}
+	**raw = val
 	return nil
 }
 
@@ -353,8 +530,17 @@ func loadConfigFile(cfg any, filename string) error {
 		return fmt.Errorf("envsubst error: %v", err)
 	}
 
-	err = yaml.Unmarshal(data, cfg)
-	if err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(cfg); err != nil {
+		return fmt.Errorf("yaml error: %v", err)
+	}
+	// Ensure there are no trailing YAML documents.
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("yaml error: unexpected extra document")
+		}
 		return fmt.Errorf("yaml error: %v", err)
 	}
 
