@@ -552,7 +552,12 @@ func (c LocalController) updateWireGuardInterface(client lowlevel.WireGuardClien
 
 	err = client.ConfigureDevice(string(pi.Identifier), ifaceConfig)
 	if err != nil {
-		return err
+		slog.Error("ConfigureDevice failed",
+			"interface", pi.Identifier,
+			"clientType", client.Type(),
+			"error", err,
+			"errorType", fmt.Sprintf("%T", err))
+		return fmt.Errorf("ConfigureDevice %s: %w", pi.Identifier, err)
 	}
 
 	return nil
