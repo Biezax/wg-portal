@@ -402,11 +402,23 @@ func (c LocalController) ensureInterfaceExists(clientType wgtypes.ClientType, id
 	if clientType == 0 {
 		clientType = wgtypes.NativeClient
 	}
-	if c.pickClientByType(clientType) == nil {
+	client := c.pickClientByType(clientType)
+	if client == nil {
 		return fmt.Errorf("no client for %s", clientType)
 	}
 
-	return c.createLowLevelInterface(clientType, id)
+	if err := c.createLowLevelInterface(clientType, id); err != nil {
+		return err
+	}
+
+	// Wait for kernel to register interface in generic netlink family
+	for i := 0; i < 50; i++ {
+		if _, err := client.Device(string(id)); err == nil {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout waiting for interface %s to become available", id)
 }
 
 func (c LocalController) getInterface(id domain.InterfaceIdentifier) (*domain.PhysicalInterface, error) {
