@@ -3,7 +3,7 @@ module github.com/biezax/wg-portal
 go 1.24.0
 
 require (
-	github.com/Biezax/wgctrl v0.0.0-20251204105146-122d064ec0a7
+	github.com/Biezax/wgctrl v0.0.2
 	github.com/a8m/envsubst v1.4.3
 	github.com/alexedwards/scs/v2 v2.9.0
 	github.com/coreos/go-oidc/v3 v3.17.0
