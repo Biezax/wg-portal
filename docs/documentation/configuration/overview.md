@@ -146,13 +146,10 @@ More advanced options are found in the subsequent `Advanced` section.
 - **Environment Variable:** `WG_PORTAL_CORE_ADMIN_API_TOKEN`
 - **Description:** An API token for the admin user. If a token is provided, the REST API can be accessed using this token. If empty, the API is initially disabled for the admin user.
 
-### `wireguard_mode`
-- **Default:** `disabled`
-- **Environment Variable:** `WG_PORTAL_CORE_WIREGUARD_MODE`
-- **Description:** Controls WireGuard host management mode:
-    - `disabled` - Portal works as UI/database manager only, without managing WireGuard on the host
-    - `wireguard` - Standard WireGuard mode
-    - `amneziawg` - AmneziaWG mode (obfuscated WireGuard)
+### `wireguard_host_management`
+- **Default:** `false`
+- **Environment Variable:** `WG_PORTAL_CORE_WIREGUARD_HOST_MANAGEMENT`
+- **Description:** If `true`, WireGuard Portal manages interfaces/peers on the host (create/update/delete, restore state, import existing, statistics collection). If `false`, it works as UI/database manager only, without touching the host network stack.
 
 ### `editable_keys`
 - **Default:** `true`
@@ -896,7 +893,7 @@ provisioning:
       peer_def_allowed_ips:
         - 0.0.0.0/0
       peer_def_persistent_keepalive: 25
-      # AmneziaWG obfuscation (optional, requires wireguard_mode: amneziawg)
+      # AmneziaWG mode (optional). If set, the interface will be created as AmneziaWG.
       advanced_security:
         jc: 4
         jmin: 50
@@ -922,4 +919,4 @@ provisioning:
 | `routing_table` | Routing table name |
 | `pre_up`, `post_up`, `pre_down`, `post_down` | Hook scripts |
 | `peer_def_*` | Default values for new peers |
-| `advanced_security` | AmneziaWG obfuscation parameters |
+| `advanced_security` | AmneziaWG obfuscation parameters. If this section is present during provisioning bootstrap, the interface type is treated as AmneziaWG; if absent, it is treated as WireGuard. |

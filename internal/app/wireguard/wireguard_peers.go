@@ -10,7 +10,6 @@ import (
 
 	"github.com/biezax/wg-portal/internal/app"
 	"github.com/biezax/wg-portal/internal/app/audit"
-	"github.com/biezax/wg-portal/internal/config"
 	"github.com/biezax/wg-portal/internal/domain"
 )
 
@@ -430,7 +429,7 @@ func (m Manager) DeletePeer(ctx context.Context, id domain.PeerIdentifier) error
 		return fmt.Errorf("unable to find interface %s: %w", peer.InterfaceIdentifier, err)
 	}
 
-	applyToHost := m.cfg.Core.WireGuardMode != config.WireGuardModeDisabled
+	applyToHost := m.cfg.Core.WireGuardHostManagement
 	if applyToHost {
 		err = m.wg.GetController(*iface).DeletePeer(ctx, peer.InterfaceIdentifier, id)
 		if err != nil {
@@ -507,7 +506,7 @@ func (m Manager) GetUserPeerStats(ctx context.Context, id domain.UserIdentifier)
 
 func (m Manager) savePeers(ctx context.Context, peers ...*domain.Peer) error {
 	interfaces := make(map[domain.InterfaceIdentifier]domain.Interface)
-	applyToHost := m.cfg.Core.WireGuardMode != config.WireGuardModeDisabled
+	applyToHost := m.cfg.Core.WireGuardHostManagement
 
 	for _, peer := range peers {
 		// get interface from db if it is not yet in the map

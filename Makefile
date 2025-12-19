@@ -47,19 +47,41 @@ format:
 ##
 ########################################################################################
 
-#> test: Run all kinds of tests, except for integration tests
+GO_TEST_IMAGE=golang:1.25
+GO_DOCKER=docker run --rm -v $(PWD):/app -v wg-portal-go-cache:/go/pkg/mod -w /app $(GO_TEST_IMAGE)
+
+#> test: Run all tests in Docker container
 .PHONY: test
 test: test-vet test-race
 
-#< test-vet: Static code analysis
-.PHONY: test-vet
-test-vet: build-dependencies
-	@$(GOCMD) vet ./...
+# Creates placeholder files for frontend embed directives
+FRONTEND_PLACEHOLDERS=mkdir -p internal/app/api/core/frontend-dist/assets internal/app/api/core/frontend-dist/img && \
+	touch internal/app/api/core/frontend-dist/index.html \
+	      internal/app/api/core/frontend-dist/favicon.ico \
+	      internal/app/api/core/frontend-dist/favicon.png \
+	      internal/app/api/core/frontend-dist/favicon-large.png \
+	      internal/app/api/core/frontend-dist/assets/placeholder.js \
+	      internal/app/api/core/frontend-dist/img/placeholder.png
 
-#< test-race: Race condition test
+#< test-vet: Static code analysis in Docker
+.PHONY: test-vet
+test-vet:
+	@$(GO_DOCKER) sh -c "$(FRONTEND_PLACEHOLDERS) && go vet ./..."
+
+#< test-race: Race condition test in Docker
 .PHONY: test-race
-test-race: build-dependencies
-	@$(GOCMD) test -race -short ./...
+test-race:
+	@$(GO_DOCKER) sh -c "$(FRONTEND_PLACEHOLDERS) && go mod download && go test -race -short ./..."
+
+#< test-verbose: Verbose test output in Docker
+.PHONY: test-verbose
+test-verbose:
+	@$(GO_DOCKER) sh -c "$(FRONTEND_PLACEHOLDERS) && go mod download && go test -race -v ./..."
+
+#< test-pkg: Run tests for specific package (usage: make test-pkg PKG=./internal/app/wireguard/...)
+.PHONY: test-pkg
+test-pkg:
+	@$(GO_DOCKER) sh -c "$(FRONTEND_PLACEHOLDERS) && go mod download && go test -race -v $(PKG)"
 
 ########################################################################################
 ##

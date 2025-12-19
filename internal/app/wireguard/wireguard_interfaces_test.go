@@ -10,7 +10,7 @@ import (
 
 func TestBootstrapInterfacesFromConfig_EmptyConfig(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Core.WireGuardMode = config.WireGuardModeDisabled
+	cfg.Core.WireGuardHostManagement = false
 
 	m := Manager{
 		cfg: cfg,
@@ -31,7 +31,7 @@ func TestBootstrapInterfacesFromConfig_EmptyConfig(t *testing.T) {
 
 func TestBootstrapInterfacesFromConfig_SkipsWhenInterfacesExist(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Core.WireGuardMode = config.WireGuardModeDisabled
+	cfg.Core.WireGuardHostManagement = false
 	cfg.Provisioning.Interfaces = []config.ProvisioningInterface{
 		{Identifier: "wg0"},
 	}
@@ -58,7 +58,7 @@ func TestBootstrapInterfacesFromConfig_SkipsWhenInterfacesExist(t *testing.T) {
 
 func TestBootstrapInterfacesFromConfig_DuplicateIdentifier(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Core.WireGuardMode = config.WireGuardModeDisabled
+	cfg.Core.WireGuardHostManagement = false
 	cfg.Provisioning.Interfaces = []config.ProvisioningInterface{
 		{Identifier: "wg0"},
 		{Identifier: "wg0"},
@@ -80,7 +80,7 @@ func TestBootstrapInterfacesFromConfig_DuplicateIdentifier(t *testing.T) {
 
 func TestBootstrapInterfacesFromConfig_EmptyIdentifier(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Core.WireGuardMode = config.WireGuardModeDisabled
+	cfg.Core.WireGuardHostManagement = false
 	cfg.Provisioning.Interfaces = []config.ProvisioningInterface{
 		{Identifier: ""},
 	}
@@ -101,7 +101,7 @@ func TestBootstrapInterfacesFromConfig_EmptyIdentifier(t *testing.T) {
 
 func TestBootstrapInterfacesFromConfig_InvalidMode(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Core.WireGuardMode = config.WireGuardModeDisabled
+	cfg.Core.WireGuardHostManagement = false
 	cfg.Provisioning.Interfaces = []config.ProvisioningInterface{
 		{Identifier: "wg0", Mode: "invalid"},
 	}
@@ -122,7 +122,7 @@ func TestBootstrapInterfacesFromConfig_InvalidMode(t *testing.T) {
 
 func TestBootstrapInterfacesFromConfig_Success(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Core.WireGuardMode = config.WireGuardModeDisabled
+	cfg.Core.WireGuardHostManagement = false
 	cfg.Advanced.StartListenPort = 51820
 	cfg.Advanced.StartCidrV4 = "10.0.0.0/24"
 	cfg.Provisioning.Interfaces = []config.ProvisioningInterface{
@@ -177,5 +177,93 @@ func TestBootstrapInterfacesFromConfig_RequiresAdmin(t *testing.T) {
 	_, err := m.BootstrapInterfacesFromConfig(ctx)
 	if err == nil {
 		t.Fatal("expected error for non-admin user")
+	}
+}
+
+func TestBootstrapInterfacesFromConfig_WithAdvancedSecurity_SetsAmneziaClient(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Core.WireGuardHostManagement = false
+	cfg.Advanced.StartListenPort = 51820
+	cfg.Advanced.StartCidrV4 = "10.0.0.0/24"
+	cfg.Provisioning.Interfaces = []config.ProvisioningInterface{
+		{
+			Identifier:  "awg0",
+			DisplayName: "AmneziaWG Interface",
+			Mode:        "server",
+			AdvancedSecurity: &config.ProvisioningInterfaceAdvancedSecurity{
+				JunkPacketCount:   4,
+				JunkPacketMinSize: 50,
+				JunkPacketMaxSize: 1000,
+			},
+		},
+	}
+
+	db := &mockDB{}
+	m := Manager{
+		cfg: cfg,
+		db:  db,
+		bus: &mockBus{},
+	}
+
+	ctx := domain.SetUserInfo(context.Background(), &domain.ContextUserInfo{IsAdmin: true})
+
+	bootstrapped, err := m.BootstrapInterfacesFromConfig(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !bootstrapped {
+		t.Fatal("expected bootstrapped=true")
+	}
+	if db.iface == nil {
+		t.Fatal("expected interface to be saved")
+	}
+	if db.iface.ClientType != 1 { // wgtypes.AmneziaClient
+		t.Fatalf("expected ClientType=AmneziaClient(1), got %d", db.iface.ClientType)
+	}
+	if db.iface.AdvancedSecurity == nil {
+		t.Fatal("expected AdvancedSecurity to be set")
+	}
+	if db.iface.AdvancedSecurity.JunkPacketCount != 4 {
+		t.Fatalf("expected Jc=4, got %d", db.iface.AdvancedSecurity.JunkPacketCount)
+	}
+}
+
+func TestBootstrapInterfacesFromConfig_WithoutAdvancedSecurity_SetsNativeClient(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Core.WireGuardHostManagement = false
+	cfg.Advanced.StartListenPort = 51820
+	cfg.Advanced.StartCidrV4 = "10.0.0.0/24"
+	cfg.Provisioning.Interfaces = []config.ProvisioningInterface{
+		{
+			Identifier:  "wg0",
+			DisplayName: "WireGuard Interface",
+			Mode:        "server",
+		},
+	}
+
+	db := &mockDB{}
+	m := Manager{
+		cfg: cfg,
+		db:  db,
+		bus: &mockBus{},
+	}
+
+	ctx := domain.SetUserInfo(context.Background(), &domain.ContextUserInfo{IsAdmin: true})
+
+	bootstrapped, err := m.BootstrapInterfacesFromConfig(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !bootstrapped {
+		t.Fatal("expected bootstrapped=true")
+	}
+	if db.iface == nil {
+		t.Fatal("expected interface to be saved")
+	}
+	if db.iface.ClientType != 0 { // wgtypes.NativeClient
+		t.Fatalf("expected ClientType=NativeClient(0), got %d", db.iface.ClientType)
+	}
+	if db.iface.AdvancedSecurity != nil {
+		t.Fatal("expected AdvancedSecurity to be nil for WireGuard interface")
 	}
 }

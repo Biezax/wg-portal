@@ -84,7 +84,7 @@ func NewLocalController(cfg *config.Config) (*LocalController, error) {
 		resolvConfIfacePrefix: cfg.Backend.LocalResolvconfPrefix, // WireGuard interfaces have a tun. prefix in resolvconf
 	}
 
-	if cfg.Core.WireGuardMode == config.WireGuardModeDisabled {
+	if !cfg.Core.WireGuardHostManagement {
 		return repo, nil
 	}
 
@@ -93,28 +93,9 @@ func NewLocalController(cfg *config.Config) (*LocalController, error) {
 		return nil, fmt.Errorf("failed to create wgctrl client: %w", err)
 	}
 
-	switch cfg.Core.WireGuardMode {
-	case config.WireGuardModeWireGuard:
-		for _, client := range repoAdapter.Clients {
-			if client.Type() == wgtypes.NativeClient {
-				repo.Clients = append(repo.Clients, client)
-			}
-		}
-		if len(repo.Clients) == 0 {
-			return nil, fmt.Errorf("no compatible wgctrl client available for mode %s", cfg.Core.WireGuardMode)
-		}
-	case config.WireGuardModeAmneziaWG:
-		for _, client := range repoAdapter.Clients {
-			if client.Type() == wgtypes.AmneziaClient {
-				repo.Clients = append(repo.Clients, client)
-			}
-		}
-		if len(repo.Clients) == 0 {
-			return nil, fmt.Errorf("no compatible wgctrl client available for mode %s", cfg.Core.WireGuardMode)
-		}
-	default:
-		// Should be prevented by config validation.
-		repo.Clients = repoAdapter.Clients
+	repo.Clients = repoAdapter.Clients
+	if len(repo.Clients) == 0 {
+		return nil, fmt.Errorf("no compatible wgctrl client available")
 	}
 
 	return repo, nil

@@ -99,8 +99,12 @@ func NewInterface(src *domain.Interface, peers []domain.Peer) *Interface {
 		TotalPeers:   0,
 		Filename:     src.GetConfigFileName(),
 
-		AdvancedSecurity:     src.AdvancedSecurity,
-		UsesAdvancedSecurity: src.HasAdvancedSecurity(),
+		AdvancedSecurity:     nil,
+		UsesAdvancedSecurity: src.ClientType == wgtypes.AmneziaClient,
+	}
+
+	if iface.UsesAdvancedSecurity {
+		iface.AdvancedSecurity = src.AdvancedSecurity
 	}
 
 	if iface.Backend == "" {
@@ -120,6 +124,13 @@ func NewInterface(src *domain.Interface, peers []domain.Peer) *Interface {
 	}
 
 	return iface
+}
+
+func isEmptyAdvancedSecurity(s *domain.AdvancedSecurity) bool {
+	if s == nil {
+		return true
+	}
+	return *s == (domain.AdvancedSecurity{})
 }
 
 func NewInterfaces(src []domain.Interface, srcPeers [][]domain.Peer) []Interface {
@@ -181,8 +192,12 @@ func NewDomainInterface(src *Interface) *domain.Interface {
 	}
 
 	if src.UsesAdvancedSecurity {
-		res.AdvancedSecurity = src.AdvancedSecurity
 		res.ClientType = wgtypes.AmneziaClient
+		if !isEmptyAdvancedSecurity(src.AdvancedSecurity) {
+			res.AdvancedSecurity = src.AdvancedSecurity
+		}
+	} else {
+		res.ClientType = wgtypes.NativeClient
 	}
 
 	if src.Disabled {

@@ -492,7 +492,7 @@ async function del() {
               <label class="form-check-label">{{ $t('modals.interface-edit.disabled.label') }}</label>
             </div>
             <div class="form-check form-switch">
-              <input v-model="formData.UsesAdvancedSecurity" class="form-check-input" type="checkbox">
+              <input v-model="formData.UsesAdvancedSecurity" class="form-check-input" type="checkbox" :disabled="props.interfaceId!=='#NEW#'">
               <label class="form-check-label">{{ $t('modals.interface-edit.header-awg-mode') }}</label>
             </div>
             <div class="form-check form-switch" v-if="formData.Backend==='local'">

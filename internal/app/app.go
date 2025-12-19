@@ -66,7 +66,7 @@ func Initialize(
 		return fmt.Errorf("failed to bootstrap interfaces: %w", err)
 	}
 
-	if cfg.Core.WireGuardMode == config.WireGuardModeDisabled {
+	if !cfg.Core.WireGuardHostManagement {
 		slog.Info("WireGuard host management disabled")
 		return nil
 	}

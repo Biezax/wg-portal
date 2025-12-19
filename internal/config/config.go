@@ -15,12 +15,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	WireGuardModeDisabled  = "disabled"
-	WireGuardModeWireGuard = "wireguard"
-	WireGuardModeAmneziaWG = "amneziawg"
-)
-
 // maxAwgStringLen matches wgctrl ioctl buffer limit for special junk packets
 const maxAwgStringLen = 5 * 1024
 
@@ -28,11 +22,11 @@ const maxAwgStringLen = 5 * 1024
 type Config struct {
 	Core struct {
 		// AdminUser defines the default administrator account that will be created
-		AdminUserDisabled bool   `yaml:"disable_admin_user"`
-		AdminUser         string `yaml:"admin_user"`
-		AdminPassword     string `yaml:"admin_password"`
-		AdminApiToken     string `yaml:"admin_api_token"` // if set, the API access is enabled automatically
-		WireGuardMode     string `yaml:"wireguard_mode"`
+		AdminUserDisabled       bool   `yaml:"disable_admin_user"`
+		AdminUser               string `yaml:"admin_user"`
+		AdminPassword           string `yaml:"admin_password"`
+		AdminApiToken           string `yaml:"admin_api_token"` // if set, the API access is enabled automatically
+		WireGuardHostManagement bool   `yaml:"wireguard_host_management"`
 
 		EditableKeys                bool `yaml:"editable_keys"`
 		CreateDefaultPeer           bool `yaml:"create_default_peer"`
@@ -156,17 +150,6 @@ type ProvisioningInterfaceAdvancedSecurity struct {
 }
 
 func (c *Config) Sanitize() error {
-	c.Core.WireGuardMode = strings.TrimSpace(strings.ToLower(c.Core.WireGuardMode))
-	if c.Core.WireGuardMode == "" {
-		c.Core.WireGuardMode = WireGuardModeDisabled
-	}
-	switch c.Core.WireGuardMode {
-	case WireGuardModeDisabled, WireGuardModeWireGuard, WireGuardModeAmneziaWG:
-		// ok
-	default:
-		return fmt.Errorf("invalid core.wireguard_mode %q", c.Core.WireGuardMode)
-	}
-
 	if err := sanitizeProvisioningInterfaces(c); err != nil {
 		return err
 	}
@@ -231,9 +214,6 @@ func sanitizeProvisioningInterfaces(c *Config) error {
 		}
 
 		if iface.AdvancedSecurity != nil {
-			if c.Core.WireGuardMode != WireGuardModeAmneziaWG {
-				return fmt.Errorf("provisioning.interfaces[%s].advanced_security is only supported with core.wireguard_mode %q", id, WireGuardModeAmneziaWG)
-			}
 			if err := validateAdvancedSecurity(fmt.Sprintf("provisioning.interfaces[%s].advanced_security", id), iface.AdvancedSecurity); err != nil {
 				return err
 			}
@@ -345,7 +325,7 @@ func (c *Config) LogStartupValues() {
 	slog.Info("Configuration loaded!", "logLevel", c.Advanced.LogLevel)
 
 	slog.Debug("Config Features",
-		"wireguardMode", c.Core.WireGuardMode,
+		"wireguardHostManagement", c.Core.WireGuardHostManagement,
 		"editableKeys", c.Core.EditableKeys,
 		"createDefaultPeerOnCreation", c.Core.CreateDefaultPeerOnCreation,
 		"reEnablePeerAfterUserEnable", c.Core.ReEnablePeerAfterUserEnable,
@@ -387,7 +367,7 @@ func defaultConfig() *Config {
 	cfg.Core.AdminUser = getEnvStr("WG_PORTAL_CORE_ADMIN_USER", "admin@wgportal.local")
 	cfg.Core.AdminPassword = getEnvStr("WG_PORTAL_CORE_ADMIN_PASSWORD", "wgportal-default")
 	cfg.Core.AdminApiToken = getEnvStr("WG_PORTAL_CORE_ADMIN_API_TOKEN", "") // by default, the API access is disabled
-	cfg.Core.WireGuardMode = getEnvStr("WG_PORTAL_CORE_WIREGUARD_MODE", WireGuardModeDisabled)
+	cfg.Core.WireGuardHostManagement = getEnvBool("WG_PORTAL_CORE_WIREGUARD_HOST_MANAGEMENT", false)
 	cfg.Core.ImportExisting = getEnvBool("WG_PORTAL_CORE_IMPORT_EXISTING", true)
 	cfg.Core.RestoreState = getEnvBool("WG_PORTAL_CORE_RESTORE_STATE", true)
 	cfg.Core.CreateDefaultPeer = getEnvBool("WG_PORTAL_CORE_CREATE_DEFAULT_PEER", false)

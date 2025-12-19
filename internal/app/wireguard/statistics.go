@@ -84,7 +84,7 @@ func NewStatisticsCollector(
 // StartBackgroundJobs starts the background jobs for the statistics collector.
 // This method is non-blocking and returns immediately.
 func (c *StatisticsCollector) StartBackgroundJobs(ctx context.Context) {
-	if c.cfg.Core.WireGuardMode == config.WireGuardModeDisabled {
+	if !c.cfg.Core.WireGuardHostManagement {
 		slog.Info("Statistics collection disabled - host management disabled")
 		return
 	}

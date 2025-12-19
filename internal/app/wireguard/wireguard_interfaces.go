@@ -109,7 +109,7 @@ func (m Manager) ImportNewInterfaces(ctx context.Context, filter ...domain.Inter
 	if err := domain.ValidateAdminAccessRights(ctx); err != nil {
 		return 0, err
 	}
-	if m.cfg.Core.WireGuardMode == config.WireGuardModeDisabled {
+	if !m.cfg.Core.WireGuardHostManagement {
 		slog.Debug("skipping interface import - host management disabled")
 		return 0, nil
 	}
@@ -213,7 +213,7 @@ func (m Manager) RestoreInterfaceState(
 	if err := domain.ValidateAdminAccessRights(ctx); err != nil {
 		return err
 	}
-	if m.cfg.Core.WireGuardMode == config.WireGuardModeDisabled {
+	if !m.cfg.Core.WireGuardHostManagement {
 		slog.Debug("skipping interface state restore - host management disabled")
 		return nil
 	}
@@ -544,6 +544,10 @@ func (m Manager) BootstrapInterfacesFromConfig(ctx context.Context) (bool, error
 			PeerDefPreDown:             ifaceCfg.PeerDefPreDown,
 			PeerDefPostDown:            ifaceCfg.PeerDefPostDown,
 			AdvancedSecurity:           advSec,
+			ClientType:                 wgtypes.NativeClient,
+		}
+		if advSec != nil {
+			bootstrapIface.ClientType = wgtypes.AmneziaClient
 		}
 		if !enabled {
 			bootstrapIface.Disabled = &now
@@ -643,6 +647,7 @@ func (m Manager) PrepareInterface(ctx context.Context) (*domain.Interface, error
 		PeerDefPostUp:              "",
 		PeerDefPreDown:             "",
 		PeerDefPostDown:            "",
+		ClientType:                 wgtypes.NativeClient,
 	}
 
 	return freshInterface, nil
@@ -707,7 +712,7 @@ func (m Manager) DeleteInterface(ctx context.Context, id domain.InterfaceIdentif
 		return err
 	}
 
-	applyToHost := m.cfg.Core.WireGuardMode != config.WireGuardModeDisabled
+	applyToHost := m.cfg.Core.WireGuardHostManagement
 
 	existingInterface, existingPeers, err := m.db.GetInterfaceAndPeers(ctx, id)
 	if err != nil {
@@ -784,7 +789,7 @@ func (m Manager) saveInterface(ctx context.Context, iface *domain.Interface) (
 		return nil, fmt.Errorf("interface validation failed: %w", err)
 	}
 
-	applyToHost := m.cfg.Core.WireGuardMode != config.WireGuardModeDisabled
+	applyToHost := m.cfg.Core.WireGuardHostManagement
 
 	oldEnabled, newEnabled, routeTableChanged := false, !iface.IsDisabled(), false // if the interface did not exist, we assume it was not enabled
 	oldInterface, err := m.db.GetInterface(ctx, iface.Identifier)
@@ -795,14 +800,14 @@ func (m Manager) saveInterface(ctx context.Context, iface *domain.Interface) (
 		}
 	}
 
-	if applyToHost {
-		switch m.cfg.Core.WireGuardMode {
-		case config.WireGuardModeWireGuard:
-			iface.ClientType = wgtypes.NativeClient
-		case config.WireGuardModeAmneziaWG:
-			iface.ClientType = wgtypes.AmneziaClient
-		}
+	if iface.ClientType == 0 {
+		iface.ClientType = wgtypes.NativeClient
+	}
+	if iface.ClientType != wgtypes.AmneziaClient {
+		iface.AdvancedSecurity = nil
+	}
 
+	if applyToHost {
 		if err := m.handleInterfacePreSaveHooks(ctx, iface, oldEnabled, newEnabled); err != nil {
 			return nil, fmt.Errorf("pre-save hooks failed: %w", err)
 		}
@@ -817,8 +822,8 @@ func (m Manager) saveInterface(ctx context.Context, iface *domain.Interface) (
 
 		if applyToHost {
 			applyIface := iface
-			if m.cfg.Core.WireGuardMode == config.WireGuardModeWireGuard {
-				// Do not apply AmneziaWG advanced security settings when running in WireGuard mode.
+			if iface.ClientType != wgtypes.AmneziaClient {
+				// Do not apply AmneziaWG advanced security settings for WireGuard interfaces.
 				tmp := *iface
 				tmp.AdvancedSecurity = nil
 				applyIface = &tmp
@@ -1315,7 +1320,7 @@ func (m Manager) importPeer(ctx context.Context, in *domain.Interface, p *domain
 }
 
 func (m Manager) deleteInterfacePeers(ctx context.Context, iface *domain.Interface, allPeers []domain.Peer) error {
-	applyToHost := m.cfg.Core.WireGuardMode != config.WireGuardModeDisabled
+	applyToHost := m.cfg.Core.WireGuardHostManagement
 	for _, peer := range allPeers {
 		if applyToHost {
 			err := m.wg.GetController(*iface).DeletePeer(ctx, iface.Identifier, peer.Identifier)

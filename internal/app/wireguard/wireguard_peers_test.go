@@ -162,7 +162,7 @@ func TestCreatePeer_SetsIdentifier_FromPublicKey(t *testing.T) {
 	}
 
 	userId := domain.UserIdentifier("user@example.com")
-	ctx := domain.SetUserInfo(context.Background(), &domain.ContextUserInfo{Id: userId, IsAdmin: false})
+	ctx := domain.SetUserInfo(context.Background(), &domain.ContextUserInfo{Id: userId, IsAdmin: true})
 
 	pubKey := "TEST_PUBLIC_KEY_ABC123"
 

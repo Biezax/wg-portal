@@ -21,8 +21,6 @@ func TestLoadConfigFile_UnknownFieldFails(t *testing.T) {
 	cfg := defaultConfig()
 
 	path := writeTempConfig(t, `
-core:
-  wireguard_mode: amneziawg
 provisioning:
   interfaces:
     - identifier: wg0
@@ -42,8 +40,6 @@ func TestSanitizeProvisioningInterfaces_InvalidCIDRFails(t *testing.T) {
 	cfg := defaultConfig()
 
 	path := writeTempConfig(t, `
-core:
-  wireguard_mode: amneziawg
 provisioning:
   interfaces:
     - identifier: wg0
@@ -63,8 +59,6 @@ func TestSanitizeProvisioningInterfaces_DuplicateIdentifierFails(t *testing.T) {
 	cfg := defaultConfig()
 
 	path := writeTempConfig(t, `
-core:
-  wireguard_mode: amneziawg
 provisioning:
   interfaces:
     - identifier: wg0
@@ -83,12 +77,10 @@ provisioning:
 	}
 }
 
-func TestSanitizeProvisioningInterfaces_AdvancedSecurityRequiresAmneziaWG(t *testing.T) {
+func TestSanitizeProvisioningInterfaces_AdvancedSecurityAllowed(t *testing.T) {
 	cfg := defaultConfig()
 
 	path := writeTempConfig(t, `
-core:
-  wireguard_mode: wireguard
 provisioning:
   interfaces:
     - identifier: wg0
@@ -102,11 +94,8 @@ provisioning:
 		t.Fatalf("loadConfigFile: %v", err)
 	}
 	err := cfg.Sanitize()
-	if err == nil {
-		t.Fatalf("expected sanitize error, got nil")
-	}
-	if !strings.Contains(err.Error(), "advanced_security is only supported") {
-		t.Fatalf("expected advanced_security mode error, got: %v", err)
+	if err != nil {
+		t.Fatalf("expected sanitize success, got: %v", err)
 	}
 }
 
@@ -114,8 +103,6 @@ func TestSanitizeProvisioningInterfaces_AdvancedSecurityJminJmaxOrderFails(t *te
 	cfg := defaultConfig()
 
 	path := writeTempConfig(t, `
-core:
-  wireguard_mode: amneziawg
 provisioning:
   interfaces:
     - identifier: wg0
@@ -141,8 +128,6 @@ func TestSanitizeProvisioningInterfaces_AdvancedSecurityH1MustBeUint32(t *testin
 	cfg := defaultConfig()
 
 	path := writeTempConfig(t, `
-core:
-  wireguard_mode: amneziawg
 provisioning:
   interfaces:
     - identifier: wg0
@@ -166,8 +151,7 @@ func TestLoadConfigFile_TrailingDocumentFails(t *testing.T) {
 	cfg := defaultConfig()
 
 	path := writeTempConfig(t, `
-core:
-  wireguard_mode: wireguard
+core: {}
 ---
 extra: document
 `)
