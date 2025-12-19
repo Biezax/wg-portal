@@ -1,17 +1,25 @@
 <script setup>
 import PeerViewModal from "../components/PeerViewModal.vue";
 
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { profileStore } from "@/stores/profile";
 import { humanFileSize } from "@/helpers/utils";
+import { settingsStore } from "@/stores/settings";
+import { notify } from "@kyvg/vue3-notification";
 
 const profile = profileStore()
+const settings = settingsStore()
 
 const viewedPeerId = ref("")
 
 const sortKey = ref("")
 const sortOrder = ref(1)
 const selectAll = ref(false)
+const isCreatingPeer = ref(false)
+
+const maxPeersPerUser = computed(() => Number(settings.Setting("MaxPeersPerUser") || 0))
+const canAddPeer = computed(() => maxPeersPerUser.value > profile.CountPeers)
+const canShowAddPeer = computed(() => canAddPeer.value && profile.PeerInterfaces.length > 0)
 
 function sortBy(key) {
   if (sortKey.value === key) {
@@ -31,6 +39,30 @@ function friendlyInterfaceName(id, name) {
   return id
 }
 
+function interfaceLabel(iface) {
+  const name = friendlyInterfaceName(iface.Identifier, iface.DisplayName)
+  if (name && name !== iface.Identifier) {
+    return `${name} (${iface.Identifier})`
+  }
+  return iface.Identifier
+}
+
+async function addPeerOnInterface(interfaceId) {
+  if (isCreatingPeer.value) return
+  isCreatingPeer.value = true
+  try {
+    await profile.CreatePeer(interfaceId)
+  } catch (e) {
+    notify({
+      title: "Failed to create peer!",
+      text: e.toString(),
+      type: "error",
+    })
+  } finally {
+    isCreatingPeer.value = false
+  }
+}
+
 function toggleSelectAll() {
   profile.FilteredAndPagedPeers.forEach(peer => {
     peer.IsSelected = selectAll.value;
@@ -40,6 +72,7 @@ function toggleSelectAll() {
 onMounted(async () => {
   await profile.LoadUser()
   await profile.LoadPeers()
+  await profile.LoadPeerInterfaces()
   await profile.LoadStats()
   await profile.calculatePages(); // Forces to show initial page number
 })
@@ -62,6 +95,19 @@ onMounted(async () => {
           <button class="btn btn-primary" :title="$t('general.search.button')"><i
               class="fa-solid fa-search"></i></button>
         </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-3 text-lg-end">
+      <div v-if="canShowAddPeer" class="btn-group ms-2">
+        <button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"
+                :title="$t('profile.button-add-peer')" :disabled="isCreatingPeer">
+          <i class="fa fa-plus"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li v-for="iface in profile.PeerInterfaces" :key="iface.Identifier">
+            <a class="dropdown-item" href="#" @click.prevent="addPeerOnInterface(iface.Identifier)">{{ interfaceLabel(iface) }}</a>
+          </li>
+        </ul>
       </div>
     </div>
   </div>

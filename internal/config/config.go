@@ -37,6 +37,7 @@ type Config struct {
 		EditableKeys                bool `yaml:"editable_keys"`
 		CreateDefaultPeer           bool `yaml:"create_default_peer"`
 		CreateDefaultPeerOnCreation bool `yaml:"create_default_peer_on_creation"`
+		MaxPeersPerUser             int  `yaml:"max_peers_per_user"`
 		ReEnablePeerAfterUserEnable bool `yaml:"re_enable_peer_after_user_enable"`
 		DeletePeerAfterUserDeleted  bool `yaml:"delete_peer_after_user_deleted"`
 		ImportExisting              bool `yaml:"import_existing"`
@@ -394,6 +395,7 @@ func defaultConfig() *Config {
 	cfg.Core.EditableKeys = getEnvBool("WG_PORTAL_CORE_EDITABLE_KEYS", true)
 	cfg.Core.ReEnablePeerAfterUserEnable = getEnvBool("WG_PORTAL_CORE_RE_ENABLE_PEER_AFTER_USER_ENABLE", true)
 	cfg.Core.DeletePeerAfterUserDeleted = getEnvBool("WG_PORTAL_CORE_DELETE_PEER_AFTER_USER_DELETED", false)
+	cfg.Core.MaxPeersPerUser = getEnvInt("WG_PORTAL_CORE_MAX_PEERS_PER_USER", 1)
 
 	cfg.Database = DatabaseConfig{
 		Debug:                getEnvBool("WG_PORTAL_DATABASE_DEBUG", false),

@@ -24,7 +24,9 @@ type UserServiceUserManager interface {
 type UserServiceWireGuardManager interface {
 	GetUserPeers(ctx context.Context, id domain.UserIdentifier) ([]domain.Peer, error)
 	GetUserInterfaces(ctx context.Context, _ domain.UserIdentifier) ([]domain.Interface, error)
+	GetPeerInterfaces(ctx context.Context, id domain.UserIdentifier) ([]domain.Interface, error)
 	GetUserPeerStats(ctx context.Context, id domain.UserIdentifier) ([]domain.PeerStatus, error)
+	CreateUserPeerOnInterface(ctx context.Context, userId domain.UserIdentifier, interfaceId domain.InterfaceIdentifier) (*domain.Peer, error)
 }
 
 // endregion dependencies
@@ -120,4 +122,16 @@ func (u UserService) GetUserPeerStats(ctx context.Context, id domain.UserIdentif
 
 func (u UserService) GetUserInterfaces(ctx context.Context, id domain.UserIdentifier) ([]domain.Interface, error) {
 	return u.wg.GetUserInterfaces(ctx, id)
+}
+
+func (u UserService) GetPeerInterfaces(ctx context.Context, id domain.UserIdentifier) ([]domain.Interface, error) {
+	return u.wg.GetPeerInterfaces(ctx, id)
+}
+
+func (u UserService) CreateUserPeerOnInterface(
+	ctx context.Context,
+	userId domain.UserIdentifier,
+	interfaceId domain.InterfaceIdentifier,
+) (*domain.Peer, error) {
+	return u.wg.CreateUserPeerOnInterface(ctx, userId, interfaceId)
 }

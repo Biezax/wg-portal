@@ -11,6 +11,7 @@ const baseUrl = `/user`
 export const profileStore = defineStore('profile', {
   state: () => ({
     peers: [],
+    peerInterfaces: [],
     stats: {},
     statsEnabled: false,
     user: {},
@@ -70,6 +71,7 @@ export const profileStore = defineStore('profile', {
       return (id) => state.statsEnabled && (id in state.stats) ? state.stats[id] : freshStats()
     },
     hasStatistics: (state) => state.statsEnabled,
+    PeerInterfaces: (state) => state.peerInterfaces || [],
   },
   actions: {
     afterPageSizeChange() {
@@ -101,6 +103,10 @@ export const profileStore = defineStore('profile', {
     },
     setPeers(peers) {
       this.peers = peers
+      this.fetching = false
+    },
+    setPeerInterfaces(interfaces) {
+      this.peerInterfaces = interfaces || []
       this.fetching = false
     },
     setUser(user) {
@@ -166,6 +172,37 @@ export const profileStore = defineStore('profile', {
             title: "Backend Connection Failure",
             text: "Failed to load user peers!",
           })
+        })
+    },
+    async LoadPeerInterfaces() {
+      this.fetching = true
+      let currentUser = authStore().user.Identifier
+      return apiWrapper.get(`${baseUrl}/${base64_url_encode(currentUser)}/peer-interfaces`)
+        .then(this.setPeerInterfaces)
+        .catch(error => {
+          this.setPeerInterfaces([])
+          console.log("Failed to load peer interfaces for ", currentUser, ": ", error)
+          notify({
+            title: "Backend Connection Failure",
+            text: "Failed to load peer interfaces!",
+          })
+        })
+    },
+    async CreatePeer(interfaceId) {
+      this.fetching = true
+      let currentUser = authStore().user.Identifier
+      return apiWrapper.post(`${baseUrl}/${base64_url_encode(currentUser)}/peers`, { InterfaceIdentifier: interfaceId })
+        .then(peers => {
+          // API returns an array (1 element)
+          peers.forEach(p => { p.IsSelected = false })
+          this.peers.push(...peers)
+          this.fetching = false
+          this.calculatePages()
+        })
+        .catch(error => {
+          this.fetching = false
+          console.log("Failed to create peer for ", currentUser, ": ", error)
+          throw new Error(error)
         })
     },
     async LoadStats() {

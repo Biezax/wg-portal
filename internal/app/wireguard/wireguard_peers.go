@@ -80,6 +80,119 @@ func (m Manager) GetUserPeers(ctx context.Context, id domain.UserIdentifier) ([]
 	return m.db.GetUserPeers(ctx, id)
 }
 
+// CreateUserPeerOnInterface creates a new peer for the given user on the given interface.
+// Peer settings are derived from the interface defaults. The user is not allowed to override any settings.
+func (m Manager) CreateUserPeerOnInterface(
+	ctx context.Context,
+	userId domain.UserIdentifier,
+	interfaceId domain.InterfaceIdentifier,
+) (*domain.Peer, error) {
+	if err := domain.ValidateUserAccessRights(ctx, userId); err != nil {
+		return nil, err
+	}
+
+	maxPeers := m.cfg.Core.MaxPeersPerUser
+	userPeers, err := m.db.GetUserPeers(ctx, userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch peers for user %s: %w", userId, err)
+	}
+	if maxPeers > 0 && len(userPeers) >= maxPeers {
+		return nil, domain.ErrPeerLimitReached
+	}
+
+	// Validate interfaceId against allowed interfaces for this user
+	allowedInterfaces, err := m.GetPeerInterfaces(ctx, userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get allowed interfaces: %w", err)
+	}
+	allowed := false
+	for _, ai := range allowedInterfaces {
+		if ai.Identifier == interfaceId {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return nil, fmt.Errorf("interface %s not allowed for peer creation: %w", interfaceId, domain.ErrInvalidData)
+	}
+
+	iface, err := m.db.GetInterface(ctx, interfaceId)
+	if err != nil {
+		return nil, fmt.Errorf("unable to find interface %s: %w", interfaceId, err)
+	}
+	if iface.IsDisabled() {
+		return nil, fmt.Errorf("interface %s is disabled: %w", interfaceId, domain.ErrInvalidData)
+	}
+	if iface.Type != domain.InterfaceTypeServer && iface.Type != domain.InterfaceTypeAny {
+		return nil, fmt.Errorf("interface %s is not eligible for user peers: %w", interfaceId, domain.ErrInvalidData)
+	}
+
+	ips, err := m.getFreshPeerIpConfig(ctx, iface)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get fresh ip addresses: %w", err)
+	}
+
+	kp, err := domain.NewFreshKeypair()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate keys: %w", err)
+	}
+
+	pk, err := domain.NewPreSharedKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate preshared key: %w", err)
+	}
+
+	currentUser := domain.GetUserInfo(ctx)
+	peerId := domain.PeerIdentifier(kp.PublicKey)
+	freshPeer := &domain.Peer{
+		BaseModel: domain.BaseModel{
+			CreatedBy: string(currentUser.Id),
+			UpdatedBy: string(currentUser.Id),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Endpoint:             domain.NewConfigOption(iface.PeerDefEndpoint, true),
+		EndpointPublicKey:    domain.NewConfigOption(iface.PublicKey, true),
+		AllowedIPsStr:        domain.NewConfigOption(iface.PeerDefAllowedIPsStr, true),
+		ExtraAllowedIPsStr:   "",
+		PresharedKey:         pk,
+		PersistentKeepalive:  domain.NewConfigOption(iface.PeerDefPersistentKeepalive, true),
+		Identifier:           peerId,
+		UserIdentifier:       userId,
+		InterfaceIdentifier:  iface.Identifier,
+		Disabled:             nil,
+		DisabledReason:       "",
+		ExpiresAt:            nil,
+		Notes:                "",
+		AutomaticallyCreated: false,
+		Interface: domain.PeerInterfaceConfig{
+			KeyPair:           kp,
+			Type:              domain.InterfaceTypeClient,
+			Addresses:         ips,
+			CheckAliveAddress: "",
+			DnsStr:            domain.NewConfigOption(iface.PeerDefDnsStr, true),
+			DnsSearchStr:      domain.NewConfigOption(iface.PeerDefDnsSearchStr, true),
+			Mtu:               domain.NewConfigOption(iface.PeerDefMtu, true),
+			FirewallMark:      domain.NewConfigOption(iface.PeerDefFirewallMark, true),
+			RoutingTable:      domain.NewConfigOption(iface.PeerDefRoutingTable, true),
+			PreUp:             domain.NewConfigOption(iface.PeerDefPreUp, true),
+			PostUp:            domain.NewConfigOption(iface.PeerDefPostUp, true),
+			PreDown:           domain.NewConfigOption(iface.PeerDefPreDown, true),
+			PostDown:          domain.NewConfigOption(iface.PeerDefPostDown, true),
+			AdvancedSecurity:  iface.AdvancedSecurity,
+		},
+	}
+	freshPeer.GenerateDisplayName("")
+
+	if err := m.savePeers(ctx, freshPeer); err != nil {
+		return nil, fmt.Errorf("failed to create new peer %s: %w", freshPeer.Identifier, err)
+	}
+
+	m.bus.Publish(app.TopicPeerCreated, *freshPeer)
+
+	return freshPeer, nil
+}
+
 // PreparePeer prepares a new peer for the given interface with fresh keys and ip addresses.
 func (m Manager) PreparePeer(ctx context.Context, id domain.InterfaceIdentifier) (*domain.Peer, error) {
 	if err := domain.ValidateAdminAccessRights(ctx); err != nil {

@@ -140,6 +140,7 @@ func (e ConfigEndpoint) handleSettingsGet() http.HandlerFunc {
 				ApiAdminOnly:              e.cfg.Advanced.ApiAdminOnly,
 				WebAuthnEnabled:           e.cfg.Auth.WebAuthn.Enabled,
 				MinPasswordLength:         e.cfg.Auth.MinPasswordLength,
+				MaxPeersPerUser:           e.cfg.Core.MaxPeersPerUser,
 				AvailableBackends:         controllerFn(),
 				LoginFormVisible:          !e.cfg.Auth.HideLoginForm || !hasSocialLogin,
 			})

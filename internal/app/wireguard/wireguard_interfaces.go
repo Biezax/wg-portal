@@ -73,6 +73,36 @@ func (m Manager) GetUserInterfaces(ctx context.Context, _ domain.UserIdentifier)
 	return []domain.Interface{}, nil
 }
 
+// GetPeerInterfaces returns the list of interfaces a normal user is allowed to select
+// when creating a new peer via self-service.
+func (m Manager) GetPeerInterfaces(ctx context.Context, userId domain.UserIdentifier) ([]domain.Interface, error) {
+	if err := domain.ValidateUserAccessRights(ctx, userId); err != nil {
+		return nil, err
+	}
+
+	allInterfaces, err := m.db.GetAllInterfaces(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to load all interfaces: %w", err)
+	}
+
+	interfaces := make([]domain.Interface, 0, len(allInterfaces))
+	for _, iface := range allInterfaces {
+		if iface.IsDisabled() {
+			continue
+		}
+		if iface.Type == domain.InterfaceTypeClient {
+			continue
+		}
+		interfaces = append(interfaces, iface.PublicInfo())
+	}
+
+	slices.SortFunc(interfaces, func(a, b domain.Interface) int {
+		return strings.Compare(string(a.Identifier), string(b.Identifier))
+	})
+
+	return interfaces, nil
+}
+
 // ImportNewInterfaces imports all new physical interfaces that are available on the system.
 // If a filter is set, only interfaces that match the filter will be imported.
 func (m Manager) ImportNewInterfaces(ctx context.Context, filter ...domain.InterfaceIdentifier) (int, error) {

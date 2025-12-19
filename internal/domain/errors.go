@@ -10,6 +10,7 @@ var ErrNotUnique = errors.New("record not unique")
 var ErrNoPermission = errors.New("no permission")
 var ErrDuplicateEntry = errors.New("duplicate entry")
 var ErrInvalidData = errors.New("invalid data")
+var ErrPeerLimitReached = errors.New("peer limit reached")
 
 // GetStackTrace returns a stack trace of the current goroutine. The stack trace has at most 1024 bytes.
 func GetStackTrace() string {

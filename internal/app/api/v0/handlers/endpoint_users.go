@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/go-pkgz/routegroup"
@@ -36,6 +37,10 @@ type UserService interface {
 	GetUserPeerStats(ctx context.Context, id domain.UserIdentifier) ([]domain.PeerStatus, error)
 	// GetUserInterfaces returns all interfaces for the given user.
 	GetUserInterfaces(ctx context.Context, id domain.UserIdentifier) ([]domain.Interface, error)
+	// GetPeerInterfaces returns all interfaces that are eligible for peer self-service creation.
+	GetPeerInterfaces(ctx context.Context, id domain.UserIdentifier) ([]domain.Interface, error)
+	// CreateUserPeerOnInterface creates a new peer for the user on the given interface.
+	CreateUserPeerOnInterface(ctx context.Context, userId domain.UserIdentifier, interfaceId domain.InterfaceIdentifier) (*domain.Peer, error)
 }
 
 type UserEndpoint struct {
@@ -73,11 +78,23 @@ func (e UserEndpoint) RegisterRoutes(g *routegroup.Bundle) {
 	apiGroup.With(e.authenticator.UserIdMatch("id")).HandleFunc("DELETE /{id}", e.handleDelete())
 	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("POST /new", e.handleCreatePost())
 	apiGroup.With(e.authenticator.UserIdMatch("id")).HandleFunc("GET /{id}/peers", e.handlePeersGet())
+	apiGroup.With(e.authenticator.UserIdMatch("id")).HandleFunc("POST /{id}/peers", e.handlePeersPost())
+	apiGroup.With(e.authenticator.UserIdMatch("id")).HandleFunc("GET /{id}/peer-interfaces", e.handlePeerInterfacesGet())
 	apiGroup.With(e.authenticator.UserIdMatch("id")).HandleFunc("GET /{id}/stats", e.handleStatsGet())
 	apiGroup.With(e.authenticator.UserIdMatch("id")).HandleFunc("GET /{id}/interfaces", e.handleInterfacesGet())
 	apiGroup.With(e.authenticator.UserIdMatch("id")).HandleFunc("POST /{id}/api/enable", e.handleApiEnablePost())
 	apiGroup.With(e.authenticator.UserIdMatch("id")).HandleFunc("POST /{id}/api/disable", e.handleApiDisablePost())
 	apiGroup.With(e.authenticator.UserIdMatch("id")).HandleFunc("POST /{id}/change-password", e.handleChangePasswordPost())
+}
+
+type peerInterfacesResponse struct {
+	Identifier  string `json:"Identifier"`
+	DisplayName string `json:"DisplayName"`
+	Mode        string `json:"Mode"`
+}
+
+type createUserPeerRequest struct {
+	InterfaceIdentifier string `json:"InterfaceIdentifier"`
 }
 
 // handleAllGet returns a gorm Handler function.
@@ -240,6 +257,84 @@ func (e UserEndpoint) handlePeersGet() http.HandlerFunc {
 		}
 
 		respond.JSON(w, http.StatusOK, model.NewPeers(peers))
+	}
+}
+
+// handlePeersPost creates a new peer for the given user on the selected interface.
+func (e UserEndpoint) handlePeersPost() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userId := Base64UrlDecode(request.Path(r, "id"))
+		if userId == "" {
+			respond.JSON(w, http.StatusBadRequest,
+				model.Error{Code: http.StatusBadRequest, Message: "missing id parameter"})
+			return
+		}
+
+		var req createUserPeerRequest
+		if err := request.BodyJson(r, &req); err != nil {
+			respond.JSON(w, http.StatusBadRequest, model.Error{Code: http.StatusBadRequest, Message: err.Error()})
+			return
+		}
+		if req.InterfaceIdentifier == "" {
+			respond.JSON(w, http.StatusBadRequest, model.Error{Code: http.StatusBadRequest, Message: "missing InterfaceIdentifier"})
+			return
+		}
+
+		newPeer, err := e.userService.CreateUserPeerOnInterface(r.Context(),
+			domain.UserIdentifier(userId),
+			domain.InterfaceIdentifier(req.InterfaceIdentifier))
+		if err != nil {
+			switch {
+			case errors.Is(err, domain.ErrPeerLimitReached):
+				respond.JSON(w, http.StatusConflict,
+					model.Error{Code: http.StatusConflict, Message: err.Error()})
+				return
+			case errors.Is(err, domain.ErrInvalidData):
+				respond.JSON(w, http.StatusBadRequest,
+					model.Error{Code: http.StatusBadRequest, Message: err.Error()})
+				return
+			default:
+				respond.JSON(w, http.StatusInternalServerError,
+					model.Error{Code: http.StatusInternalServerError, Message: err.Error()})
+				return
+			}
+		}
+
+		respond.JSON(w, http.StatusOK, model.NewPeers([]domain.Peer{*newPeer}))
+	}
+}
+
+// handlePeerInterfacesGet returns the list of interfaces that the user can select for peer creation.
+func (e UserEndpoint) handlePeerInterfacesGet() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userId := Base64UrlDecode(request.Path(r, "id"))
+		if userId == "" {
+			respond.JSON(w, http.StatusBadRequest,
+				model.Error{Code: http.StatusBadRequest, Message: "missing id parameter"})
+			return
+		}
+
+		interfaces, err := e.userService.GetPeerInterfaces(r.Context(), domain.UserIdentifier(userId))
+		if err != nil {
+			respond.JSON(w, http.StatusInternalServerError,
+				model.Error{Code: http.StatusInternalServerError, Message: err.Error()})
+			return
+		}
+
+		resp := make([]peerInterfacesResponse, 0, len(interfaces))
+		for _, iface := range interfaces {
+			displayName := iface.DisplayName
+			if displayName == "" {
+				displayName = string(iface.Identifier)
+			}
+			resp = append(resp, peerInterfacesResponse{
+				Identifier:  string(iface.Identifier),
+				DisplayName: displayName,
+				Mode:        string(iface.Type),
+			})
+		}
+
+		respond.JSON(w, http.StatusOK, resp)
 	}
 }
 
