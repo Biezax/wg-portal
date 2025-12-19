@@ -11,8 +11,6 @@ const baseUrl = `/user`
 export const profileStore = defineStore('profile', {
   state: () => ({
     peers: [],
-    interfaces: [],
-    selectedInterfaceId: "",
     stats: {},
     statsEnabled: false,
     user: {},
@@ -72,7 +70,6 @@ export const profileStore = defineStore('profile', {
       return (id) => state.statsEnabled && (id in state.stats) ? state.stats[id] : freshStats()
     },
     hasStatistics: (state) => state.statsEnabled,
-    CountInterfaces: (state) => state.interfaces.length,
   },
   actions: {
     afterPageSizeChange() {
@@ -117,11 +114,6 @@ export const profileStore = defineStore('profile', {
       }
       this.stats = statsResponse.Stats
       this.statsEnabled = statsResponse.Enabled
-    },
-    setInterfaces(interfaces) {
-      this.interfaces = interfaces
-      this.selectedInterfaceId = interfaces.length > 0 ? interfaces[0].Identifier : ""
-      this.fetching = false
     },
     async enableApi() {
       this.fetching = true
@@ -203,20 +195,6 @@ export const profileStore = defineStore('profile', {
             text: "Failed to load user!",
           })
         })
-    },
-    async LoadInterfaces() {
-      this.fetching = true
-      let currentUser = authStore().user.Identifier
-      return apiWrapper.get(`${baseUrl}/${base64_url_encode(currentUser)}/interfaces`)
-          .then(this.setInterfaces)
-          .catch(error => {
-            this.setInterfaces([])
-            console.log("Failed to load interfaces for ", currentUser, ": ", error)
-            notify({
-              title: "Backend Connection Failure",
-              text: "Failed to load interfaces!",
-            })
-          })
     },
   }
 })

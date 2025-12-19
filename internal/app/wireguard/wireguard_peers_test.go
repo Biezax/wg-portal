@@ -141,9 +141,7 @@ func (f *mockDB) GetUsedIpsPerSubnet(ctx context.Context, subnets []domain.Cidr)
 func TestCreatePeer_SetsIdentifier_FromPublicKey(t *testing.T) {
 	// Arrange
 	cfg := &config.Config{}
-	cfg.Core.SelfProvisioningAllowed = true
 	cfg.Core.EditableKeys = true
-	cfg.Advanced.LimitAdditionalUserPeers = 0
 
 	bus := &mockBus{}
 

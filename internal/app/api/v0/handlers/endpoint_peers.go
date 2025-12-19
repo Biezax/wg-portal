@@ -74,16 +74,16 @@ func (e PeerEndpoint) RegisterRoutes(g *routegroup.Bundle) {
 
 	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("GET /iface/{iface}/all", e.handleAllGet())
 	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("GET /iface/{iface}/stats", e.handleStatsGet())
-	apiGroup.HandleFunc("GET /iface/{iface}/prepare", e.handlePrepareGet())
-	apiGroup.HandleFunc("POST /iface/{iface}/new", e.handleCreatePost())
+	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("GET /iface/{iface}/prepare", e.handlePrepareGet())
+	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("POST /iface/{iface}/new", e.handleCreatePost())
 	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("POST /iface/{iface}/multiplenew",
 		e.handleCreateMultiplePost())
 	apiGroup.HandleFunc("GET /config-qr/{id}", e.handleQrCodeGet())
-	apiGroup.HandleFunc("POST /config-mail", e.handleEmailPost())
+	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("POST /config-mail", e.handleEmailPost())
 	apiGroup.HandleFunc("GET /config/{id}", e.handleConfigGet())
 	apiGroup.HandleFunc("GET /{id}", e.handleSingleGet())
-	apiGroup.HandleFunc("PUT /{id}", e.handleUpdatePut())
-	apiGroup.HandleFunc("DELETE /{id}", e.handleDelete())
+	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("PUT /{id}", e.handleUpdatePut())
+	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("DELETE /{id}", e.handleDelete())
 }
 
 // handleAllGet returns a gorm Handler function.

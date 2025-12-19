@@ -11,10 +11,12 @@ import { settingsStore } from "@/stores/settings";
 import { profileStore } from "@/stores/profile";
 import { base64_url_encode } from '@/helpers/encoding';
 import { apiWrapper } from "@/helpers/fetch-wrapper";
+import { authStore } from "@/stores/auth";
 
 const { t } = useI18n()
 
 const settings = settingsStore()
+const auth = authStore()
 const peers = peerStore()
 const interfaces = interfaceStore()
 const profile = profileStore()
@@ -109,6 +111,9 @@ function download() {
 }
 
 function email() {
+  if (!auth.IsAdmin) {
+    return
+  }
   peers.MailPeerConfig(settings.Setting("MailLinkOnly"), configStyle.value, [selectedPeer.value.Identifier]).catch(e => {
     notify({
       title: "Failed to send mail with peer configuration!",
@@ -227,7 +232,7 @@ function ConfigQrUrl() {
       <div class="flex-fill text-start">
         <button v-if="selectedInterface.Mode !== 'client'" @click.prevent="download" type="button" class="btn btn-primary me-1">{{
           $t('modals.peer-view.button-download') }}</button>
-        <button v-if="selectedInterface.Mode !== 'client'" @click.prevent="email" type="button" class="btn btn-primary me-1">{{
+        <button v-if="selectedInterface.Mode !== 'client' && auth.IsAdmin" @click.prevent="email" type="button" class="btn btn-primary me-1">{{
           $t('modals.peer-view.button-email') }}</button>
       </div>
       <button @click.prevent="close" type="button" class="btn btn-secondary">{{ $t('general.close') }}</button>

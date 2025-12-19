@@ -54,7 +54,7 @@ func (e ProvisioningEndpoint) RegisterRoutes(g *routegroup.Bundle) {
 	apiGroup.HandleFunc("GET /data/peer-config", e.handlePeerConfigGet())
 	apiGroup.HandleFunc("GET /data/peer-qr", e.handlePeerQrGet())
 
-	apiGroup.HandleFunc("POST /new-peer", e.handleNewPeerPost())
+	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("POST /new-peer", e.handleNewPeerPost())
 }
 
 // handleUserInfoGet returns a gorm Handler function.

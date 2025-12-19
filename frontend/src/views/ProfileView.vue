@@ -3,15 +3,11 @@ import PeerViewModal from "../components/PeerViewModal.vue";
 
 import { onMounted, ref } from "vue";
 import { profileStore } from "@/stores/profile";
-import UserPeerEditModal from "@/components/UserPeerEditModal.vue";
-import { settingsStore } from "@/stores/settings";
 import { humanFileSize } from "@/helpers/utils";
 
-const settings = settingsStore()
 const profile = profileStore()
 
 const viewedPeerId = ref("")
-const editPeerId = ref("")
 
 const sortKey = ref("")
 const sortOrder = ref(1)
@@ -45,7 +41,6 @@ onMounted(async () => {
   await profile.LoadUser()
   await profile.LoadPeers()
   await profile.LoadStats()
-  await profile.LoadInterfaces()
   await profile.calculatePages(); // Forces to show initial page number
 })
 
@@ -53,7 +48,6 @@ onMounted(async () => {
 
 <template>
   <PeerViewModal :peerId="viewedPeerId" :visible="viewedPeerId !== ''" @close="viewedPeerId = ''"></PeerViewModal>
-  <UserPeerEditModal :peerId="editPeerId" :visible="editPeerId !== ''" @close="editPeerId = ''; profile.LoadPeers()"></UserPeerEditModal>
 
   <!-- Peer list -->
   <div class="mt-4 row">
@@ -67,19 +61,6 @@ onMounted(async () => {
             @keyup="profile.afterPageSizeChange">
           <button class="btn btn-primary" :title="$t('general.search.button')"><i
               class="fa-solid fa-search"></i></button>
-        </div>
-      </div>
-    </div>
-    <div class="col-12 col-lg-3 text-lg-end">
-      <div class="form-group" v-if="settings.Setting('SelfProvisioning')">
-        <div class="input-group mb-3">
-          <button class="btn btn-primary" :title="$t('interfaces.button-add-peer')" @click.prevent="editPeerId = '#NEW#'">
-            <i class="fa fa-plus me-1"></i><i class="fa fa-user"></i>
-          </button>
-          <select v-model="profile.selectedInterfaceId" :disabled="profile.CountInterfaces===0" class="form-select">
-            <option v-if="profile.CountInterfaces===0" value="nothing">{{ $t('interfaces.no-interface.default-selection') }}</option>
-            <option v-for="iface in profile.interfaces" :key="iface.Identifier" :value="iface.Identifier">{{ friendlyInterfaceName(iface.Identifier,iface.DisplayName) }}</option>
-          </select>
         </div>
       </div>
     </div>
@@ -147,8 +128,6 @@ onMounted(async () => {
           <td class="text-center">
             <a href="#" :title="$t('profile.button-show-peer')" @click.prevent="viewedPeerId = peer.Identifier"><i
                 class="fas fa-eye me-2"></i></a>
-            <a href="#" :title="$t('profile.button-edit-peer')" @click.prevent="editPeerId = peer.Identifier"><i
-                class="fas fa-cog"></i></a>
           </td>
         </tr>
       </tbody>

@@ -68,33 +68,9 @@ func (m Manager) GetAllInterfacesAndPeers(ctx context.Context) ([]domain.Interfa
 	return interfaces, allPeers, nil
 }
 
-// GetUserInterfaces returns all interfaces that are available for users to create new peers.
-// If self-provisioning is disabled, this function will return an empty list.
-// At the moment, there are no interfaces specific to single users, thus the user id is not used.
+// GetUserInterfaces is deprecated. Self-provisioning was removed.
 func (m Manager) GetUserInterfaces(ctx context.Context, _ domain.UserIdentifier) ([]domain.Interface, error) {
-	if !m.cfg.Core.SelfProvisioningAllowed {
-		return nil, nil // self-provisioning is disabled - no interfaces for users
-	}
-
-	interfaces, err := m.db.GetAllInterfaces(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("unable to load all interfaces: %w", err)
-	}
-
-	// strip sensitive data, users only need very limited information
-	userInterfaces := make([]domain.Interface, 0, len(interfaces))
-	for _, iface := range interfaces {
-		if iface.IsDisabled() {
-			continue // skip disabled interfaces
-		}
-		if iface.Type != domain.InterfaceTypeServer {
-			continue // skip client interfaces
-		}
-
-		userInterfaces = append(userInterfaces, iface.PublicInfo())
-	}
-
-	return userInterfaces, nil
+	return []domain.Interface{}, nil
 }
 
 // ImportNewInterfaces imports all new physical interfaces that are available on the system.

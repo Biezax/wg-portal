@@ -137,7 +137,6 @@ func (e ConfigEndpoint) handleSettingsGet() http.HandlerFunc {
 			respond.JSON(w, http.StatusOK, model.Settings{
 				MailLinkOnly:              e.cfg.Mail.LinkOnly,
 				PersistentConfigSupported: e.cfg.Advanced.ConfigStoragePath != "",
-				SelfProvisioning:          e.cfg.Core.SelfProvisioningAllowed,
 				ApiAdminOnly:              e.cfg.Advanced.ApiAdminOnly,
 				WebAuthnEnabled:           e.cfg.Auth.WebAuthn.Enabled,
 				MinPasswordLength:         e.cfg.Auth.MinPasswordLength,

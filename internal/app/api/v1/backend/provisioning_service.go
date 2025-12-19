@@ -138,14 +138,8 @@ func (p ProvisioningService) NewPeer(ctx context.Context, req models.Provisionin
 	}
 
 	// check permissions
-	if err := domain.ValidateUserAccessRights(ctx, domain.UserIdentifier(req.UserIdentifier)); err != nil {
+	if err := domain.ValidateAdminAccessRights(ctx); err != nil {
 		return nil, err
-	}
-	if !p.cfg.Core.SelfProvisioningAllowed {
-		// only admins can create new peers if self-provisioning is disabled
-		if err := domain.ValidateAdminAccessRights(ctx); err != nil {
-			return nil, err
-		}
 	}
 
 	// prepare new peer

@@ -41,7 +41,7 @@ WireGuard Portal supports managing WireGuard interfaces through three distinct d
    ```yaml
    services:
      wg-portal:
-       image: ghcr.io/biezax/wg-portal:v2
+       image: ghcr.io/biezax/wg-portal:master # CI image from master branch (unstable)
        container_name: wg-portal
        ...
        cap_add:
@@ -67,7 +67,7 @@ WireGuard Portal supports managing WireGuard interfaces through three distinct d
    ```yaml
    services:
      wg-portal:
-       image: ghcr.io/biezax/wg-portal:v2
+       image: ghcr.io/biezax/wg-portal:master # CI image from master branch (unstable)
        container_name: wg-portal
        ...
        cap_add:

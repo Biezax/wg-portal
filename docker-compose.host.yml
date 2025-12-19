@@ -11,16 +11,8 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    ports:
-      - "51820:51820/udp" # WireGuard
-      - "8888:8888/tcp"   # Web UI
-    sysctls:
-      - net.ipv4.conf.all.src_valid_mark=1
-      - net.ipv4.ip_forward=1
+    network_mode: "host"
     volumes:
-      # left side is the host path, right side is the container path
+      - /etc/wireguard:/etc/wireguard
       - ./data:/app/data
       - ./config:/app/config
-#    restart: no
-#    command: ["-migrateFrom=/app/data/wg_portal.db"]
-

@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/biezax/wg-portal/internal/config"
 )
 
 func TestPeer_IsDisabled(t *testing.T) {
@@ -91,16 +90,6 @@ func TestPeer_GenerateDisplayName(t *testing.T) {
 	peer.GenerateDisplayName("")
 	expected = "Peer 12345678"
 	assert.Equal(t, expected, peer.DisplayName)
-}
-
-func TestPeer_OverwriteUserEditableFields(t *testing.T) {
-	peer := &Peer{}
-	userPeer := &Peer{
-		DisplayName: "New DisplayName",
-	}
-
-	peer.OverwriteUserEditableFields(userPeer, &config.Config{})
-	assert.Equal(t, "New DisplayName", peer.DisplayName)
 }
 
 func TestPeer_GetPresharedKey(t *testing.T) {

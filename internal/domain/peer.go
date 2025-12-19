@@ -11,7 +11,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/biezax/wg-portal/internal"
-	"github.com/biezax/wg-portal/internal/config"
 )
 
 type PeerIdentifier string
@@ -131,23 +130,6 @@ func (p *Peer) GenerateDisplayName(prefix string) {
 		prefix = fmt.Sprintf("%s ", strings.TrimSpace(prefix)) // add a space after the prefix
 	}
 	p.DisplayName = fmt.Sprintf("%sPeer %s", prefix, internal.TruncateString(string(p.Identifier), 8))
-}
-
-// OverwriteUserEditableFields overwrites the user-editable fields of the peer with the values from the userPeer
-func (p *Peer) OverwriteUserEditableFields(userPeer *Peer, cfg *config.Config) {
-	p.DisplayName = userPeer.DisplayName
-	if cfg.Core.EditableKeys {
-		p.Interface.PublicKey = userPeer.Interface.PublicKey
-		p.Interface.PrivateKey = userPeer.Interface.PrivateKey
-		p.PresharedKey = userPeer.PresharedKey
-		p.Identifier = userPeer.Identifier
-	}
-	p.Interface.Mtu = userPeer.Interface.Mtu
-	p.PersistentKeepalive = userPeer.PersistentKeepalive
-	p.ExpiresAt = userPeer.ExpiresAt
-	p.Disabled = userPeer.Disabled
-	p.DisabledReason = userPeer.DisabledReason
-	p.Interface.AdvancedSecurity = userPeer.Interface.AdvancedSecurity
 }
 
 type PeerInterfaceConfig struct {

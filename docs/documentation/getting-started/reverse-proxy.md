@@ -44,7 +44,7 @@ services:
       - 'traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https'
 
   wg-portal:
-    image: ghcr.io/biezax/wg-portal:v2
+    image: ghcr.io/biezax/wg-portal:master # CI image from master branch (unstable)
     container_name: wg-portal
     restart: unless-stopped
     logging:
