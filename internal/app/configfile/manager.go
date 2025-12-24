@@ -201,9 +201,9 @@ func (m Manager) GetPeerConfig(ctx context.Context, id domain.PeerIdentifier, st
 		return nil, err
 	}
 
-	// For AmneziaWG peers add a name header used by Amnezia importers.
-	if peer.Interface.HasAdvancedSecurity() {
-		displayName := m.getPeerConfigDisplayName(ctx, peer)
+	// Add a stable, human-friendly name header for importers/UI.
+	displayName := m.getPeerConfigDisplayName(ctx, peer)
+	if displayName != "" {
 		header := fmt.Sprintf("# Name = %s\n", displayName)
 		return io.MultiReader(strings.NewReader(header), cfg), nil
 	}
