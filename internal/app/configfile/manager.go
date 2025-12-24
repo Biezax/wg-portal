@@ -196,7 +196,70 @@ func (m Manager) GetPeerConfig(ctx context.Context, id domain.PeerIdentifier, st
 		return nil, err
 	}
 
-	return m.tplHandler.GetPeerConfig(peer, style)
+	cfg, err := m.tplHandler.GetPeerConfig(peer, style)
+	if err != nil {
+		return nil, err
+	}
+
+	// For AmneziaWG peers add a name header used by Amnezia importers.
+	if peer.Interface.HasAdvancedSecurity() {
+		displayName := m.getPeerConfigDisplayName(ctx, peer)
+		header := fmt.Sprintf("# Name = %s\n", displayName)
+		return io.MultiReader(strings.NewReader(header), cfg), nil
+	}
+
+	return cfg, nil
+}
+
+func (m Manager) getPeerConfigDisplayName(ctx context.Context, peer *domain.Peer) string {
+	if peer == nil {
+		return ""
+	}
+
+	ifaceName := strings.TrimSpace(string(peer.InterfaceIdentifier))
+	if iface, err := m.wg.GetInterface(ctx, peer.InterfaceIdentifier); err == nil && iface != nil {
+		if n := strings.TrimSpace(iface.DisplayName); n != "" {
+			ifaceName = n
+		} else if id := strings.TrimSpace(string(iface.Identifier)); id != "" {
+			ifaceName = id
+		}
+	}
+
+	peerName := strings.TrimSpace(peer.DisplayName)
+	if peerName == "" {
+		peerName = strings.TrimSpace(string(peer.Identifier))
+	}
+
+	if ifaceName == "" {
+		return peerName
+	}
+	if peerName == "" {
+		return ifaceName
+	}
+	return ifaceName + " - " + peerName
+}
+
+func (m Manager) getPeerQrConfigText(cfgData io.Reader, keepNameHeader bool, displayName string) (string, error) {
+	sb := strings.Builder{}
+	if keepNameHeader && displayName != "" {
+		sb.WriteString("# Name = ")
+		sb.WriteString(displayName)
+		sb.WriteString("\n")
+	}
+
+	scanner := bufio.NewScanner(cfgData)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		sb.WriteString(line)
+		sb.WriteString("\n")
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return sb.String(), nil
 }
 
 // GetPeerConfigQrCode returns a QR code image containing the configuration for the given peer.
@@ -210,26 +273,43 @@ func (m Manager) GetPeerConfigQrCode(ctx context.Context, id domain.PeerIdentifi
 		return nil, err
 	}
 
-	cfgData, err := m.tplHandler.GetPeerConfig(peer, style)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get peer config for %s: %w", id, err)
-	}
+	var qrPayload string
+	switch {
+	case peer.Interface.HasAdvancedSecurity():
+		displayName := m.getPeerConfigDisplayName(ctx, peer)
 
-	// remove comments from qr-code config as it is not needed
-	sb := strings.Builder{}
-	scanner := bufio.NewScanner(cfgData)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "#") {
-			sb.WriteString(line)
-			sb.WriteString("\n")
+		// For AmneziaWG QR we always use WG-Quick config to ensure Address/DNS/MTU are present.
+		cfgData, err := m.tplHandler.GetPeerConfig(peer, domain.ConfigStyleWgQuick)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get peer config for %s: %w", id, err)
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read peer config for %s: %w", id, err)
+
+		cfgText, err := m.getPeerQrConfigText(cfgData, true, displayName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read peer config for %s: %w", id, err)
+		}
+
+		vpnLink, err := buildAmneziaAwgVpnLink(peer, displayName, cfgText)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build amnezia vpn link for %s: %w", id, err)
+		}
+
+		qrPayload = vpnLink
+	default:
+		cfgData, err := m.tplHandler.GetPeerConfig(peer, style)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get peer config for %s: %w", id, err)
+		}
+
+		cfgText, err := m.getPeerQrConfigText(cfgData, false, "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to read peer config for %s: %w", id, err)
+		}
+
+		qrPayload = cfgText
 	}
 
-	code, err := qrcode.NewWith(sb.String(),
+	code, err := qrcode.NewWith(qrPayload,
 		qrcode.WithErrorCorrectionLevel(qrcode.ErrorCorrectionLow), qrcode.WithEncodingMode(qrcode.EncModeByte))
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize qr code for %s: %w", id, err)

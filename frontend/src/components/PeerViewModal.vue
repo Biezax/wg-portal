@@ -83,11 +83,29 @@ const title = computed(() => {
 
 const configStyle = ref("wgquick")
 
+const selectedPeerInterface = computed(() => {
+  const ifaceId = selectedPeer.value?.InterfaceIdentifier
+  if (!ifaceId) {
+    return null
+  }
+  return (
+    (profile.PeerInterfaces || []).find((i) => i.Identifier === ifaceId) ||
+    (interfaces.All || []).find((i) => i.Identifier === ifaceId) ||
+    null
+  )
+})
+
+const isAmneziaAwg = computed(() => selectedPeerInterface.value?.UsesAdvancedSecurity === true)
+
 watch(() => props.visible, async (newValue, oldValue) => {
   if (oldValue === false && newValue === true) { // if modal is shown
     await peers.LoadPeerConfig(selectedPeer.value.Identifier, configStyle.value)
     configString.value = peers.configuration
   }
+})
+
+watch(isAmneziaAwg, (isAwg) => {
+  if (isAwg) configStyle.value = "wgquick"
 })
 
 watch(() => configStyle.value, async () => {
@@ -135,7 +153,7 @@ function ConfigQrUrl() {
 <template>
   <Modal :title="title" :visible="visible" @close="close">
     <template #default>
-      <div class="d-flex justify-content-end align-items-center mb-1" v-if="selectedInterface.Mode !== 'client'">
+      <div class="d-flex justify-content-end align-items-center mb-1" v-if="selectedInterface.Mode !== 'client' && !isAmneziaAwg">
         <span class="me-2">{{ $t('modals.peer-view.style-label') }}: </span>
         <div class="btn-group btn-switch-group" role="group" aria-label="Configuration Style">
           <input type="radio" class="btn-check" name="configstyle" id="raw" value="raw" autocomplete="off" checked="" v-model="configStyle">
